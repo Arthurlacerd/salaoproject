@@ -8,12 +8,15 @@
 // arquivos da versão anterior faz a instalação FALHAR inteira — nunca há versão parcialmente válida;
 // (b) uma versão fixada só é usada se for compatível com o banco atual (mesmo "banco", "schema" >= atual); senão é ignorada e
 // desafixada; (c) rota de emergência: abrir o app com ?recuperar=1 desafixa qualquer versão e abre a versão atual.
+// 11.3: (d) retorno só para versões >= VERSAO_MINIMA_RETORNO: as anteriores restauram backups sem login. Um pino abaixo
+// dela nunca é aceito nem servido (é desafixado); ?recuperar=1 continua igual.
 importScripts("js/versao.js");
 const V = self.SALAO_VERSAO, PREFIXO = "salao-static-v", CACHE = PREFIXO + V.versao, META = "salao-meta";
 const ARQUIVOS = [...new Set(["index.html", "sw.js", ...V.arquivos])]; // sw.js entra no cache só para o backup da aplicação
 const RAIZ = new URL("./", self.location).pathname; // pasta do app, ex.: /REPOSITORIO/
 const vnum = (v) => v.split(".").map(Number);
 const maior = (a, b) => { const x = vnum(a), y = vnum(b); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
+const VERSAO_MINIMA_RETORNO = "11.3.0"; // mesmo valor de js/data/manutencao.js (conferido em tests/unit/sw.test.js)
 // cópia da resposta sem a marca de "redirecionada"
 const limpa = async (r) => new Response(await r.blob(), { status: r.status, statusText: r.statusText, headers: r.headers });
 // 11.2: resposta servida do cache com "Cache-Control: no-cache". Sem isso o cache de MEMÓRIA do navegador reaproveita, numa
@@ -92,8 +95,11 @@ async function infoVersao(versao) { // lê o versao.js guardado no cache daquela
   const r = await (await caches.open(PREFIXO + versao)).match("js/versao.js"); if (!r) return null;
   try { return lerVersao(await r.text()); } catch (_) { return null; }
 }
-/** Compatível = mesma versão NATIVA do banco e schema lógico >= o desta versão. Assim o retorno nunca faz o IndexedDB recusar a abertura. */
-function compativel(v) { return !!v && Number(v.banco) === Number(V.banco) && Number(v.schema || 0) >= Number(V.schema || 0); }
+/** Versão X.Y.Z >= a mínima segura (comparação numérica: 11.10.0 > 11.3.0). */
+function seguraParaRetorno(v) { return !!v && /^\d+\.\d+\.\d+$/.test(String(v.versao)) && maior(v.versao, VERSAO_MINIMA_RETORNO) >= 0; }
+/** Compatível = mesma versão NATIVA do banco e schema lógico >= o desta versão (assim o retorno nunca faz o IndexedDB recusar
+ *  a abertura) E versão segura para retorno. */
+function compativel(v) { return !!v && Number(v.banco) === Number(V.banco) && Number(v.schema || 0) >= Number(V.schema || 0) && seguraParaRetorno(v); }
 async function desafixar() { await (await caches.open(META)).delete("fixada"); memoFix = null; }
 async function fixada() {
   if (memoFix !== undefined) return memoFix && memoFix.versao;
@@ -120,7 +126,9 @@ self.addEventListener("message", (e) => {
     else if (d && d.tipo === "fixar-versao") {
       const v = await infoVersao(d.versao);
       if (!v) return resp({ ok: false, motivo: "Essa versão não está mais guardada neste aparelho." });
-      if (!compativel(v)) return resp({ ok: false, motivo: `A versão ${d.versao} não é compatível com os dados atuais (banco v${v.banco}/dados v${v.schema}; atual v${V.banco}/v${V.schema}).` });
+      if (!compativel(v)) return resp({ ok: false, motivo: !seguraParaRetorno(v) && Number(v.banco) === Number(V.banco) && Number(v.schema || 0) >= Number(V.schema || 0)
+        ? `A versão ${d.versao} é antiga demais para um retorno seguro (mínimo ${VERSAO_MINIMA_RETORNO}).`
+        : `A versão ${d.versao} não é compatível com os dados atuais (banco v${v.banco}/dados v${v.schema}; atual v${V.banco}/v${V.schema}).` });
       await (await caches.open(META)).put("fixada", new Response(d.versao)); memoFix = undefined; resp({ ok: true });
     }
     else if (d && d.tipo === "desafixar") { await desafixar(); resp({ ok: true }); }

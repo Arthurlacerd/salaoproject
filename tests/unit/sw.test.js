@@ -38,6 +38,18 @@ test("service worker: versão fixada só se compatível; ?recuperar=1 desafixa",
   assert.match(codigo, /Number\(v\.banco\) === Number\(V\.banco\) && Number\(v\.schema \|\| 0\) >= Number\(V\.schema \|\| 0\)/);
   assert.match(codigo, /u\.searchParams\.has\("recuperar"\)/);
 });
+test("service worker: retorno só para versão >= a mínima segura (mesma da página, comparação numérica); ?recuperar=1 não depende disso", async () => {
+  const { VERSAO_MINIMA_RETORNO } = await import("../../js/data/manutencao.js");
+  const minima = codigo.match(/const VERSAO_MINIMA_RETORNO = "([^"]+)"/); assert.ok(minima, "constante no sw.js"); assert.equal(minima[1], VERSAO_MINIMA_RETORNO, "sw.js e manutencao.js com o mesmo valor");
+  assert.match(codigo, /function compativel\(v\) \{[^\n]*&& seguraParaRetorno\(v\)/, "compativel() exige a versão segura (vale para fixar e para servir um pino)");
+  const linha = (re) => { const m = codigo.match(re); assert.ok(m, String(re)); return m[0]; };
+  const segura = new Function(`${linha(/const vnum = [^\n]*/)}\n${linha(/const maior = [^\n]*/)}\n${linha(/const VERSAO_MINIMA_RETORNO = [^\n]*/)}\n${linha(/function seguraParaRetorno\(v\) [^\n]*/)}\nreturn seguraParaRetorno;`)();
+  for (const versao of ["11.3.0", "11.3.1", "11.10.0", "12.0.0"]) assert.equal(segura({ versao }), true, versao);
+  for (const versao of ["11.2.0", "11.1.0", "11.2.99", "10.99.99", "9.9.9", "11.3", "11.3.0-beta", "x", "", undefined]) assert.equal(segura({ versao }), false, String(versao));
+  assert.equal(segura(null), false);
+  // emergência: desafixa e serve a versão atual sem consultar compativel()
+  assert.match(codigo, /if \(emergencia\) await desafixar\(\);\s*const fix = emergencia \? null : await fixada\(\)/);
+});
 test("service worker: instalação grava só depois de validar TODOS os arquivos (sem versão parcial)", () => {
   const i = codigo.indexOf('addEventListener("install"'), trecho = codigo.slice(i, codigo.indexOf('addEventListener("activate"'));
   assert.ok(trecho.indexOf("prontos.push") < trecho.indexOf("c.put"), "precisa validar tudo antes de gravar");

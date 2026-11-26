@@ -5,7 +5,8 @@
 **Formato `.salaobackup`:** v1, sem mudança. Os backups normais continuam com exatamente os mesmos campos e são legíveis
 pela 11.2. Um backup de **estado inconsistente** recebe dois campos informativos no cabeçalho, fora do checksum e ignorados
 pela 11.2 (veja D3).
-**Service worker e identidade do PWA:** sem mudança. Só a lista de cache e os hashes mudam, via build.
+**Service worker:** uma única mudança, no retorno de versão, que passou a exigir a versão mínima segura 11.3.0 (veja
+"Retorno de versão"). Fora isso, só a lista de cache e os hashes mudam, via build. **Identidade do PWA:** sem mudança.
 **9.x:** nada foi implementado. A compatibilidade **não foi verificada**, e as telas agora dizem isso.
 
 ## O que mudou para quem usa
@@ -170,13 +171,35 @@ Pelos fluxos da 11.3, o aparelho não chega a esse estado sozinho:
 O caso realista é a senha esquecida. Uma recuperação controlada (por exemplo, um código de recuperação gerado no primeiro
 acesso e mostrado uma única vez) é uma **decisão de produto ainda não tomada**: não foi implementada.
 
+## Retorno de versão: mínimo 11.3.0
+
+A auditoria final mostrou que voltar para a 11.2 (ou para a 11.1) reabria a restauração sem login: o código dessas
+versões restaura backups sem autenticação mesmo com usuários no aparelho. Isso foi confirmado no navegador: a 11.2 fixada,
+o backup de outra pessoa restaurado sem login e as cópias da vítima acessíveis.
+
+- **Regra:** só se volta para uma versão **igual ou mais nova que a 11.3.0**. A comparação é numérica (`11.10.0` > `11.3.0`),
+  não de texto, e uma versão fora do formato `X.Y.Z` é recusada. As regras de banco e schema continuam valendo.
+- **Na página:** `manutencao.compatibilidade()`. A tela de Manutenção mostra "A versão 11.2.0 é antiga demais para um
+  retorno seguro…". Nada é gravado, nem a cópia `pre_retorno_versao`.
+- **No service worker:** `compativel()` também exige a versão segura. Ele recusa fixar uma versão antiga e nunca serve um
+  pino antigo: se encontrar um, desfaz o pino e abre a versão atual.
+- **`?recuperar=1`:** sem mudança. A rota de emergência desafixa e abre a versão atual sem passar por essa regra.
+- **Efeito na 11.3.0:** as versões guardadas no aparelho (11.2 ou 11.1) ficam abaixo do mínimo, então não há para onde
+  voltar. Um problema na 11.3.0 se resolve publicando uma versão nova, como já manda o processo oficial. A partir da
+  11.3.1, voltar para a 11.3.0 é possível.
+- **Testes que mudaram de expectativa por causa da regra:** "11.2 → 11.1 é compatível" (unitário) virou "11.1 e 11.2 são
+  recusadas"; o teste unitário "permitido com banco e schema iguais" usava a versão `"x"` e agora usa `"11.3.0"`;
+  "retorno seguro 11.3 → anterior" (navegador) virou "retorno recusado". A cobertura do retorno permitido (cópia antes,
+  dados preservados, "Usar a mais recente") passou para um teste novo, da versão seguinte para a 11.3.0. O teste de
+  `?recuperar=1` fixa agora uma versão guardada segura (sintética), já que a 11.2 não pode mais ser fixada.
+
 ## Testes
 
 | Conjunto | Executados | Aprovados | Falhas | Ignorados |
 |---|---|---|---|---|
 | Build (`--verificar`) | 1 | 1 | 0 | 0 |
-| Unitários | 96 | 95 | 0 | 1 (sem fixture 9.x real) |
-| Integração em Chromium | 58 | 58 | 0 | 0 |
+| Unitários | 98 | 97 | 0 | 1 (sem fixture 9.x real) |
+| Integração em Chromium | 61 | 61 | 0 | 0 |
 
 **Destaques da integração:**
 - **Inválido → recusado → estado intacto:** 18 tipos de problema (incluindo M1, M2 e M3), com impressão digital do
@@ -198,6 +221,12 @@ acesso e mostrado uma única vez) é uma **decisão de produto ainda não tomada
 - **Compatibilidade obrigatória:** backups gerados pelo código real de **10.1.0, 11.0.0, 11.1.0 e 11.2.0** restauram com
   tabelas idênticas e login funcionando. Os pagamentos desses backups saem dos três pontos que gravam pagamentos.
 - **Atualização real:** **11.2.0 → 11.3.0** (produção) e 11.1.0 → 11.3.0.
+- **Retorno de versão:**
+  - 11.3 → 11.2 e 11.3 → 11.1 recusados na página, no service worker e na tela, sem alterar a versão ativa, os dados, as
+    cópias nem os caches;
+  - um pino antigo gravado por fora é desfeito;
+  - o retorno para a 11.3.0 é permitido a partir da versão seguinte;
+  - `?recuperar=1` continua funcionando.
 - **Responsivo:** 9 larguras, 12 telas cada, mais a prévia da restauração.
 
 ## Medidas
@@ -207,7 +236,7 @@ Medidas em servidor local e Chromium desktop: servem para comparar versões.
 | Medida | 11.2.0 | 11.3.0 |
 |---|---|---|
 | Arquivos do app (cache) | 30 | 35 (+5 módulos: `senha`, `formatos_backup`, `esquema_backup`, `validacao_backup`, `restauracao`) |
-| Tamanho total do app | 470 KB | 513,8 KB (+43,8 KB) |
+| Tamanho total do app | 470 KB | 515,6 KB (+45,6 KB) |
 | Requisições da página na 1ª abertura | 24 | 29 |
 | Atualização pela tela (11.2.0 → 11.3.0, com backup antes) | — | ~1,2 s |
 
@@ -227,10 +256,10 @@ Medidas em servidor local e Chromium desktop: servem para comparar versões.
 - **Aparelho que já está com dados e sem nenhum usuário:** a 11.2 podia deixar esse estado ao importar um backup com
   `usuarios: []`. Ele continua aberto a quem criar o primeiro administrador, como em todas as versões. A 11.3 não produz
   mais esse estado.
-- **Voltar para a 11.2 reabre a restauração sem login.** Depois de atualizar, a 11.2 continua guardada e é compatível
-  (mesmo banco e schema). Enquanto um administrador a mantiver fixada em "Voltar para esta versão", roda o código da 11.2,
-  que restaurava sem login mesmo com usuários no aparelho. Só um administrador fixa a versão, e `?recuperar=1` desfaz.
-  Impedir o retorno para versões anteriores à 11.3 mudaria o retorno de versão da 11.2: é uma decisão de produto pendente.
+- **Sem retorno de versão na 11.3.0:** as versões guardadas (11.2 ou 11.1) ficam abaixo do mínimo seguro. Um problema na
+  11.3.0 se resolve publicando uma versão nova. O retorno volta a ter opção a partir da 11.3.1.
+- **Aparelho que fique na 11.2** (sem atualizar) continua com a restauração sem login da 11.2: a proteção só vale depois
+  de atualizar para a 11.3.
 - **Desfazer sem login devolve o acesso ao administrador anterior à restauração.** Esse administrador passa a ver as
   cópias, inclusive a do estado restaurado. É assim desde o desenho aprovado (D1). Só afeta quem sabe a senha daquele
   administrador, e a restauração foi feita com essa mesma conta. Exigir login para desfazer quando os usuários foram

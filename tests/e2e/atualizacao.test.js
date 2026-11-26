@@ -2,6 +2,7 @@
 // mesmo perfil de navegador do começo ao fim: publicação parcial/CDN desatualizada recusada, backup antes de atualizar,
 // dados preservados, troca do SW, retorno de versão seguro, bloqueio de versão incompatível e rota de emergência.
 // 11.3: a versão em teste não é mais fixa no código; roda para 11.1.0 → atual e 11.2.0 → atual (caminho de produção).
+// 11.3: retorno só para versões >= 11.3.0 (as anteriores restauram backups sem login): voltar para 11.1/11.2 é RECUSADO.
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -74,12 +75,28 @@ for (const [ANTERIOR, REF] of PARTIDAS) describe(`atualização ${ANTERIOR} → 
     const nativa = await page.evaluate(async () => (await indexedDB.databases()).find((d) => d.name === "salao_gestao").version); assert.equal(nativa, 1, "IndexedDB sem mudança de versão");
   });
 
-  T(`retorno seguro ${VERSAO} → ${ANTERIOR} e volta para a mais recente, sem perda de dados`, async () => {
-    await page.evaluate(async (v) => (await import("./js/data/manutencao.js")).voltarVersao(v), ANTERIOR);
-    await recarregar(); assert.equal(await versao(), ANTERIOR); assert.equal((await estadoDados(page)).cliente.nome, e0.cliente.nome);
-    assert.ok((await estadoDados(page)).backups.includes("pre_retorno_versao"));
-    await page.evaluate(async () => (await import("./js/data/manutencao.js")).usarMaisRecente()); // código da própria versão anterior
-    await recarregar(); assert.equal(await versao(), VERSAO);
+  T(`retorno ${VERSAO} → ${ANTERIOR} RECUSADO (abaixo da versão mínima segura 11.3.0): página e service worker; um pino antigo nunca é servido`, async () => {
+    const r = await page.evaluate(async (v) => { const M = await import("./js/data/manutencao.js"); const p = await M.podeVoltarPara(v); let erro = ""; try { await M.voltarVersao(v); } catch (e) { erro = e.message; }
+      return { minima: M.VERSAO_MINIMA_RETORNO, p, erro, sw: await M.swMsg({ tipo: "fixar-versao", versao: v }) }; }, ANTERIOR);
+    assert.equal(r.minima, "11.3.0");
+    assert.equal(r.p.ok, false); assert.match(r.p.motivo, /antiga demais para um retorno seguro/);
+    assert.match(r.erro, /antiga demais para um retorno seguro/, "a função usada pela tela também recusa");
+    assert.equal(r.sw.ok, false, "o service worker também recusa"); assert.match(r.sw.motivo, /antiga demais para um retorno seguro/);
+    assert.equal(await meta("fixada"), null, "nada foi fixado");
+    await page.evaluate(async (v) => (await caches.open("salao-meta")).put("fixada", new Response(v)), ANTERIOR); // pino abaixo do mínimo gravado por fora
+    await pararSW(); await recarregar();
+    assert.equal(await versao(), VERSAO, "o service worker não serve a versão antiga"); assert.equal(await meta("fixada"), null, "e desfaz o pino");
+  });
+
+  T(`tentativa de retorno para ${ANTERIOR} pela TELA não altera a versão ativa, os dados, as cópias nem os caches`, async () => {
+    const antes = { versao: await versao(), dados: await estadoDados(page), caches: await caches(page) };
+    await page.goto(srv.url + "#/manutencao"); await page.waitForSelector(`[data-voltar="${ANTERIOR}"]`);
+    await page.click(`[data-voltar="${ANTERIOR}"]`); await page.click(".modal [data-ok]");
+    await page.waitForSelector("#m-res .alert.erro"); assert.match(await page.textContent("#m-res"), /antiga demais para um retorno seguro/);
+    await recarregar();
+    assert.equal(await versao(), antes.versao); assert.equal(await meta("fixada"), null);
+    assert.deepEqual(await estadoDados(page), antes.dados, "dados e cópias idênticos (nem a cópia pre_retorno_versao foi criada)");
+    assert.deepEqual(await caches(page), antes.caches);
   });
 
   T("P1: versão com banco mais antigo é bloqueada (página e service worker) e um pino incompatível é ignorado", async () => {
@@ -99,12 +116,43 @@ for (const [ANTERIOR, REF] of PARTIDAS) describe(`atualização ${ANTERIOR} → 
   });
 
   T("emergência: ?recuperar=1 desafixa e abre a versão atual; a marca sai da barra de endereço", async () => {
-    await page.evaluate(async (v) => (await import("./js/data/manutencao.js")).voltarVersao(v), ANTERIOR);
-    await recarregar(); assert.equal(await versao(), ANTERIOR);
+    // só uma versão >= 11.3.0 pode ser fixada: uma cópia guardada sintética, compatível e segura, com todos os arquivos
+    const SEGURA = await page.evaluate(async (V) => { const [a, b, c] = V.split(".").map(Number), s = `${a}.${b}.${c + 7}`;
+      const atual = await caches.open("salao-static-v" + V), nova = await caches.open("salao-static-v" + s);
+      for (const req of await atual.keys()) { const r = await atual.match(req); await nova.put(req, req.url.endsWith("/js/versao.js") ? new Response((await r.text()).replace(`"versao": "${V}"`, `"versao": "${s}"`), { headers: r.headers }) : r); }
+      return s; }, VERSAO);
+    await page.evaluate(async (v) => (await import("./js/data/manutencao.js")).voltarVersao(v), SEGURA);
+    await recarregar(); assert.equal(await versao(), SEGURA, "a versão fixada está em uso");
     await page.goto(srv.url + "?recuperar=1#/hoje"); await page.waitForSelector("#vista");
     assert.equal(await versao(), VERSAO); assert.equal(await meta("fixada"), null); assert.ok(!page.url().includes("recuperar"));
     assert.equal((await estadoDados(page)).cliente.nome, e0.cliente.nome);
   });
+});
+
+// Retorno PERMITIDO para a versão mínima segura: a próxima versão (sintética, código atual) volta para a versão em teste.
+test(`retorno para a versão mínima segura: próxima → ${VERSAO} é PERMITIDO (dados preservados); "Usar a mais recente" e ?recuperar=1 voltam`, { skip: semNavegador }, async () => {
+  const [ma, mi, pa] = VERSAO.split(".").map(Number), PROXIMA = `${ma}.${mi}.${pa + 1}`;
+  const a = versaoAtual(), b = versaoAtual(), s = await servidor(a), n = await navegador(), p = await (await n.newContext()).newPage();
+  const ver = () => p.evaluate(() => globalThis.SALAO_VERSAO.versao), rec = async () => { await p.reload(); await p.waitForSelector("#vista"); };
+  const voltar = (v) => p.evaluate(async (v) => (await import("./js/data/manutencao.js")).voltarVersao(v), v);
+  try {
+    const f = path.join(b, "js/versao.js"); writeFileSync(f, readFileSync(f, "utf8").replace(`"versao": "${VERSAO}"`, `"versao": "${PROXIMA}"`));
+    execFileSync("python3", [path.join(RAIZ, "tools/construir_pwa.py"), "--raiz", b, "--quieto"]);
+    await abrir(p, s.url); await configurarAdmin(p); await semear(p); const e0 = await estadoDados(p);
+    s.publicar(b); await p.evaluate(async () => { await (await navigator.serviceWorker.getRegistration()).update(); });
+    await p.waitForSelector("#update-banner:not([hidden]) #botao-atualizar", { timeout: 15000 });
+    await p.click("#botao-atualizar"); await p.waitForFunction((v) => globalThis.SALAO_VERSAO?.versao === v, PROXIMA, { timeout: 30000 }); await p.waitForSelector("#vista");
+    const pode = await p.evaluate(async (v) => (await import("./js/data/manutencao.js")).podeVoltarPara(v), VERSAO); assert.equal(pode.ok, true, pode.motivo);
+    await voltar(VERSAO); await rec(); assert.equal(await ver(), VERSAO, `${VERSAO} (a versão mínima segura) aceita e em uso`);
+    const e1 = await estadoDados(p); assert.ok(e1.backups.includes("pre_retorno_versao"));
+    for (const k of ["clientes", "atendimentos", "pagamentos", "despesas", "usuarios", "servicos", "cliente", "atendimento"]) assert.deepEqual(e1[k], e0[k], `dado preservado: ${k}`);
+    await p.evaluate(async () => (await import("./js/data/manutencao.js")).usarMaisRecente()); await rec(); assert.equal(await ver(), PROXIMA, "Usar a mais recente (código da versão fixada)");
+    await voltar(VERSAO); await rec(); assert.equal(await ver(), VERSAO);
+    await p.goto(s.url + "?recuperar=1#/hoje"); await p.waitForSelector("#vista");
+    assert.equal(await ver(), PROXIMA, "?recuperar=1 desafixa e abre a mais recente");
+    assert.equal(await p.evaluate(async () => (await (await caches.open("salao-meta")).match("fixada")) ?? null), null);
+    assert.equal((await estadoDados(p)).cliente.nome, e0.cliente.nome);
+  } finally { await n.close(); await s.fechar(); limpar(a, b); }
 });
 
 // Atualização feita pelo CÓDIGO da versão em teste (as próximas versões): atual → próxima (sintética), na mesma sessão da instalação.

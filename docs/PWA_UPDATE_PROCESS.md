@@ -50,9 +50,12 @@ Sempre faça o merge de uma vez só (merge commit ou squash). Nunca envie arquiv
 - **Só é permitido voltar para versões compatíveis:** com a mesma versão nativa do banco (`banco`) e um `schema` igual ou
   maior que o atual. Versões incompatíveis são bloqueadas na página **e** no service worker, porque o IndexedDB recusaria
   abrir e o app não abriria. Os dados nunca sofrem *downgrade*.
-- Se um pino incompatível existir por qualquer motivo, o service worker o ignora e desafixa sozinho.
-- **Atenção à segurança:** enquanto uma versão anterior estiver fixada, valem as regras dela. A 11.2, por exemplo,
-  restaurava backups sem login mesmo com usuários no aparelho. Volte para a mais recente assim que possível.
+- **Versão mínima segura: 11.3.0.** As versões anteriores (11.2, 11.1…) restauravam backups sem login e são bloqueadas
+  na página **e** no service worker. A comparação é numérica (`11.10.0` > `11.3.0`). Na 11.3.0 não há, por isso, versão
+  para onde voltar: um problema nela se resolve publicando uma versão nova.
+- Se um pino incompatível ou abaixo do mínimo existir por qualquer motivo, o service worker o ignora e desafixa sozinho.
+- **Atenção à segurança:** enquanto uma versão anterior estiver fixada, valem as regras dela. Ao subir a versão mínima no
+  futuro, altere `VERSAO_MINIMA_RETORNO` em `js/data/manutencao.js` **e** em `sw.js` (o teste unitário confere que são iguais).
 
 **Para quem publica:** para reverter uma publicação ruim para todos, **não** reverta a `main` para a versão anterior
 (o mesmo número de versão com outro conteúdo seria recusado). Publique uma versão **nova** (ex.: 11.2.1) com o código

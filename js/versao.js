@@ -17,6 +17,7 @@ globalThis.SALAO_VERSAO = {
     "Com usuários no aparelho, restaurar exige entrar como administrador; sem login, só em aparelho sem nenhum usuário (primeiro acesso ou dados perdidos)",
     "Desfazer a última restauração (inclusive sem login enquanto ninguém entrou), nunca para um estado sem administrador, e cópia do estado atual para baixar antes de restaurar",
     "Backups com datas que não existem no calendário, ids acima de 2.147.483.647 ou pagamentos sem forma de pagamento são recusados antes de qualquer gravação",
+    "Voltar de versão só para a 11.3.0 ou mais nova: as versões anteriores restauravam backups sem login",
     "Estado inconsistente não impede mais exportar, atualizar nem restaurar um backup válido: a cópia é marcada como apenas para recuperação/análise",
     "Mensagens de erro mais claras e textos sobre a versão 9.x corrigidos (compatibilidade não verificada)"
   ],
@@ -75,7 +76,7 @@ globalThis.SALAO_VERSAO = {
     "js/data/esquema_backup.js": "a064b102f322d6df4e62fa63c7cf35775f8a5081112d289a19544bfbb286a9b0",
     "js/data/financeiro.js": "744f23c3f5ef7052d5c4cc8944417e61eafe080142f65ebd7af96b308211bf1a",
     "js/data/formatos_backup.js": "ff0fffe303439d9a0d5d365dae9ca646b4d6c63acf1a7b356c6fbb58ffd044e2",
-    "js/data/manutencao.js": "decb3caaa6072f60000136b3a65e727fd0aea9d24cd025c7bc5c36ad264052e9",
+    "js/data/manutencao.js": "8badf894e202386311e9cac78da7b310cee9c99a1f2f2db1a9f56121227dac94",
     "js/data/migracoes.js": "6146ff3d650679d9616607357b834f7e066f7e1c9ba830c3ccf9440ac2c948f9",
     "js/data/permissoes.js": "28cd396691f1074b4268e93564a3f1f7c9e6ee7b4f5a2c34db561b44e9ef0668",
     "js/data/restauracao.js": "6bd88eeec3ca41747daee58226fad5b7601e3e8e7dcaedec45fdfe3c0da5b664",
@@ -89,6 +90,6 @@ globalThis.SALAO_VERSAO = {
     "js/ui/util.js": "b7f977eaca4c3a5ea16738349c5b2120eb8b12ea029cf005ff906e9664c574cb",
     "js/ui/views.js": "2cd9fccfbff23d5d6928811d6fbc05f09fdcdfa31bdd5bacbb773b86c0537ee9",
     "manifest.webmanifest": "4d3c7261f77eb7044c34be68fd3ae34cbd5edfa06e0e4fb651707acb8ae50674",
-    "sw.js": "8aad47965c0e986d2c8c8f2f88f687e52fefa0036811ce0fabf099e93698d075"
+    "sw.js": "2d100c1c1796ace31a65e3c74ee11b6d38a4c503c6f25ec5bb829e7365a20d15"
   }
 };

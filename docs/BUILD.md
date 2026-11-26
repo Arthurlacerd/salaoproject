@@ -69,15 +69,15 @@ O `npm` aqui é só um atalho: não há `node_modules`, e os comandos podem ser 
 | Arquivo | Cobre |
 |---|---|
 | `tests/unit/manifest.test.js` | JSON, name/short_name, scope/start_url, display, ícones reais, ausência de `id` |
-| `tests/unit/sw.test.js` | versão e nome do cache, arquivos existentes, hashes, nenhum acesso ao IndexedDB, fallback offline, ativação só a pedido, versão fixada compatível, `?recuperar=1`, cache sem reaproveitamento |
+| `tests/unit/sw.test.js` | versão e nome do cache, arquivos existentes, hashes, nenhum acesso ao IndexedDB, fallback offline, ativação só a pedido, versão fixada compatível, versão mínima de retorno (igual à da página, comparação numérica), `?recuperar=1`, cache sem reaproveitamento |
 | `tests/unit/indexeddb.test.js` | migrations numeradas, versão nativa/lógica = `versao.js`, nada destrutivo, migration 2 idempotente e reversível |
 | `tests/unit/backup.test.js` | checksum canônico idêntico ao do Python, validação, adulteração, formato futuro, órfãos, senha, cabeçalho 9.x (sem prometer compatibilidade), retenção |
 | `tests/unit/senha.test.js` | formato do `senha_hash`: válido, limites de iterações, campos, algoritmo (Werkzeug/scrypt gerados pelo Python real), hexadecimal (caso da investigação), SHA-512, sal e hash inválidos; login tolerante sem erro técnico |
 | `tests/unit/validacao_backup.test.js` | validação completa antes de gravar: cabeçalho, checksum, **cada campo obrigatório de cada tabela**, listas fechadas, ids (até 2^31 − 1), datas do calendário, forma de pagamento, relacionamentos, usuários, regras de acesso, mensagens sem dados pessoais, alarmes para mudanças futuras |
-| `tests/unit/manutencao.test.js` | P1: compatibilidade de retorno de versão |
+| `tests/unit/manutencao.test.js` | P1: compatibilidade de retorno de versão; versão mínima segura 11.3.0 (comparação numérica, formato inválido recusado) |
 | `tests/unit/build.test.js` | o build aprova o repositório e reprova 12 tipos de problema |
 | `tests/e2e/pwa.test.js` | instalação do SW, IndexedDB real, migration única, offline, Diagnóstico sem dados pessoais, medidas |
-| `tests/e2e/atualizacao.test.js` | atualização real **11.1.0 → atual** e **11.2.0 → atual**, atual → próxima versão (sintética), CDN desatualizada, backup antes, dados preservados, retorno, P1, emergência |
+| `tests/e2e/atualizacao.test.js` | atualização real **11.1.0 → atual** e **11.2.0 → atual**, atual → próxima versão (sintética), CDN desatualizada, backup antes, dados preservados, retorno para 11.1/11.2 **recusado** (página, service worker e tela, sem alterar nada), retorno permitido para a versão mínima segura, P1, emergência |
 | `tests/e2e/backup.test.js` | exportação, restauração com prova de acesso, ids repetidos recusados antes de gravar, estado inconsistente (D2), adulteração, retenção no banco real |
 | `tests/e2e/restauracao.test.js` | **inválido → recusado → estado intacto** (18 problemas), restauração válida pela tela, requisito 11, prova de acesso (D4), falha simulada na gravação e na cópia, D1/A2 (com admin, recepção conectada, sem admin que consiga entrar, primeiro acesso), backup sem usuários, desfazer com e sem login, A1 (nunca para estado sem administrador; criar outro administrador é impossível), cópia danificada, M2 (limite de ids e gerador de chaves), D2, D3, D5 |
 | `tests/e2e/compat_versoes.test.js` | backups gerados pelo código real de **10.1.0, 11.0.0, 11.1.0 e 11.2.0** (com pagamentos dos três pontos que os gravam) restauram na versão atual com dados idênticos e login |

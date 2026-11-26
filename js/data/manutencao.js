@@ -78,11 +78,16 @@ export async function aplicarAtualizacao(aoProgresso = () => {}) {
 }
 
 // ---------- retorno de versão (não destrutivo) ----------
+/** Versão mínima segura para o retorno: as anteriores (11.1, 11.2…) restauram backups sem login, falha corrigida na 11.3.
+ *  O mesmo valor está em sw.js (o service worker também recusa); tests/unit/sw.test.js confere que os dois são iguais. */
+export const VERSAO_MINIMA_RETORNO = "11.3.0";
+const FORMATO_VERSAO = /^\d+\.\d+\.\d+$/;
 /** Compatibilidade de uma versão guardada com os dados ATUAIS deste aparelho (função pura, testada).
  *  Só é compatível a versão com a MESMA versão nativa do banco (IndexedDB) e schema lógico >= o atual:
  *  - banco menor: o IndexedDB recusaria a abertura (VersionError) e o app não abriria;
  *  - banco maior: ela tentaria mudar a estrutura (não é um retorno);
- *  - schema menor: o código antigo não conhece as migrations de dados já aplicadas.
+ *  - schema menor: o código antigo não conhece as migrations de dados já aplicadas;
+ *  - versão anterior à VERSAO_MINIMA_RETORNO (comparação numérica X.Y.Z, não de texto): reabriria uma falha de segurança.
  *  O retorno nunca faz downgrade do IndexedDB: se não for compatível, é bloqueado. */
 export function compatibilidade(v, atual = { banco: VERSAO_BANCO, schema: VERSAO_SCHEMA }) {
   const banco = Number(v?.banco), schema = Number(v?.schema ?? 0);
@@ -90,6 +95,8 @@ export function compatibilidade(v, atual = { banco: VERSAO_BANCO, schema: VERSAO
   if (banco < atual.banco) return { ok: false, motivo: `A versão ${v.versao} usa a estrutura de dados v${banco}, mais antiga que a atual (v${atual.banco}). Voltar para ela impediria o aplicativo de abrir, então o retorno foi bloqueado. Seus dados não foram alterados.` };
   if (banco > atual.banco) return { ok: false, motivo: `A versão ${v.versao} usa a estrutura de dados v${banco}, diferente da atual (v${atual.banco}). Use Atualizar em vez de voltar.` };
   if (schema < atual.schema) return { ok: false, motivo: `A versão ${v.versao} não conhece as atualizações de dados já aplicadas neste aparelho (dados v${schema} < v${atual.schema}). O retorno foi bloqueado.` };
+  if (!FORMATO_VERSAO.test(String(v.versao ?? ""))) return { ok: false, motivo: "A versão guardada não informa um número de versão válido; o retorno foi bloqueado por segurança. Seus dados não foram alterados." };
+  if (cmp(v.versao, VERSAO_MINIMA_RETORNO) < 0) return { ok: false, motivo: `A versão ${v.versao} é antiga demais para um retorno seguro: versões anteriores à ${VERSAO_MINIMA_RETORNO} permitem restaurar backups sem login. O retorno foi bloqueado. Seus dados não foram alterados.` };
   return { ok: true };
 }
 export async function podeVoltarPara(versao) {
