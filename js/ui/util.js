@@ -12,7 +12,7 @@ export const iso = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padS
 export const somarDias = (d, n) => { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() + n); return iso(x); };
 export const hojeISO = () => iso(new Date());
 export const slug = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, "-");
-export function toast(msg, tipo = "sucesso") {
+export function toast(msg, tipo = "sucesso") { // eslint-disable-line
   let a = document.getElementById("alertas"); if (!a) return; const d = document.createElement("div"); d.className = "alert " + tipo; d.textContent = msg; a.appendChild(d);
   if (tipo !== "erro") setTimeout(() => d.remove(), 5000); else d.addEventListener("click", () => d.remove());
 }
@@ -22,7 +22,24 @@ export function ligarForm(sel, fn, raiz = document) {
   f.addEventListener("submit", async (e) => { e.preventDefault(); const b = f.querySelector("[type=submit]"); if (b) b.disabled = true;
     try { await fn(dadosForm(f), f); } catch (err) { toast(err.message || String(err), "erro"); window.scrollTo({ top: 0, behavior: "smooth" }); } finally { if (b) b.disabled = false; } });
 }
-export function confirmar(msg) { return window.confirm(msg); }
+import { ic, tile } from "./icones.js";
+/** Modal do design system (substitui confirm/prompt nativos). Retorna Promise. */
+function modal({ titulo, corpo = "", ok = "Confirmar", cancelar = "Cancelar", perigo = false, icone, campo = null }) {
+  return new Promise((res) => {
+    const antes = document.activeElement, scrim = document.createElement("div"); scrim.className = "modal-scrim";
+    scrim.innerHTML = `<div class="modal${perigo ? " perigo" : ""}" role="alertdialog" aria-modal="true" aria-labelledby="md-t"><div class="modal-head">${tile(icone || (perigo ? "alert" : "info"), perigo ? "rose" : "wine")}<h2 id="md-t">${esc(titulo)}</h2></div>${corpo ? `<p>${esc(corpo)}</p>` : ""}${campo ? `<label class="field">${esc(campo.rotulo)}<input id="md-campo" type="${campo.tipo || "text"}" autocomplete="off" ${campo.minlength ? `minlength="${campo.minlength}"` : ""}></label>` : ""}<div class="modal-actions"><button type="button" class="button button-light" data-no>${esc(cancelar)}</button><button type="button" class="button${perigo ? " button-dark" : ""}" data-ok>${esc(ok)}</button></div></div>`;
+    const fim = (v) => { scrim.remove(); document.removeEventListener("keydown", tecla, true); antes && antes.focus && antes.focus(); res(v); };
+    const valor = () => (campo ? scrim.querySelector("#md-campo").value : true);
+    const tecla = (e) => { if (e.key === "Escape") { e.preventDefault(); fim(campo ? null : false); } else if (e.key === "Enter" && !e.target.closest("[data-no]")) { e.preventDefault(); fim(valor()); } else if (e.key === "Tab") { const f = [...scrim.querySelectorAll("input,button")]; const i = f.indexOf(document.activeElement); e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus(); } };
+    scrim.addEventListener("click", (e) => { if (e.target === scrim || e.target.closest("[data-no]")) fim(campo ? null : false); else if (e.target.closest("[data-ok]")) fim(valor()); });
+    document.addEventListener("keydown", tecla, true); document.body.appendChild(scrim); (scrim.querySelector("#md-campo") || scrim.querySelector("[data-ok]")).focus();
+  });
+}
+/** Confirmação (Promise<boolean>). Ações destrutivas ganham destaque. */
+export function confirmar(msg, o = {}) { const perigo = o.perigo ?? /excluir|cancelar este|apagar|substituir|remover/i.test(msg); return modal({ titulo: o.titulo || (perigo ? "Atenção" : "Confirmar"), corpo: msg, perigo, ok: o.ok || (perigo ? "Sim, continuar" : "Confirmar"), icone: o.icone }); }
+/** Pergunta com campo (Promise<string|null>). */
+export function pedir(titulo, o = {}) { return modal({ titulo, corpo: o.corpo || "", ok: o.ok || "Salvar", icone: o.icone || "key", campo: { rotulo: o.rotulo || "Valor", tipo: o.tipo || "text", minlength: o.minlength } }); }
+export const esqueleto = () => '<div class="skeleton" aria-busy="true" aria-label="Carregando"><i></i><i></i><i></i></div>';
 export function chartAttr(o) { return esc(JSON.stringify(o)); }
 export function periodo(chave, de, ate) {
   const h = hojeISO(), d = new Date(); let i = h, f = h;

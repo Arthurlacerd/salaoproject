@@ -52,7 +52,7 @@ export function auditar(t, acao, entidade, entidade_id, resumo = "", campo = nul
   return t.auditoria.adicionar({ quando: agora(), acao, entidade, entidade_id, campo, valor_anterior: anterior == null ? null : String(anterior), valor_novo: novo == null ? null : String(novo), resumo, usuario: sessao.usuario?.nome || "sistema" });
 }
 // ---- configurações (chave/valor) ----
-export const CONFIG_PADRAO = { nome_sistema: "Salão.gestão", cor_principal: "#a85e70", cor_fundo: "#f8f7f5", tema: "claro", bloqueio_minutos: "30", agenda_inicio: "08:00", agenda_fim: "19:00", backup_automatico: "1", backup_antes_atualizar: "1" };
+export const CONFIG_PADRAO = { nome_sistema: "Salão.gestão", cor_principal: "#a85e70", cor_fundo: "#f7efe4", tema: "claro", bloqueio_minutos: "30", agenda_inicio: "08:00", agenda_fim: "19:00", backup_automatico: "1", backup_antes_atualizar: "1" };
 export async function config() {
   const linhas = await ler("config"); const c = { ...CONFIG_PADRAO };
   for (const l of linhas) c[l.chave] = l.valor; return c;

@@ -4,7 +4,8 @@ import { pode } from "./data/permissoes.js";
 import * as Usr from "./data/usuarios.js";
 import * as Bkp from "./data/backup.js";
 import { ler } from "./data/database.js";
-import { esc, toast } from "./ui/util.js";
+import { esc, toast, confirmar, esqueleto } from "./ui/util.js";
+import { ic, tile } from "./ui/icones.js";
 import { montar, rede } from "./ui/shell.js";
 import { ROTAS } from "./ui/views.js";
 
@@ -13,7 +14,7 @@ const PERM = { painel: "financeiro.ler", agenda: "agenda.ler", atendimento: "age
 let relogio = null;
 
 function tela(titulo, corpo) {
-  raiz().innerHTML = `<main class="login-wrap"><section class="login-card panel"><h1>${titulo}</h1>${corpo}</section></main>`;
+  raiz().innerHTML = `<main class="login-wrap"><section class="login-card"><div class="login-hero"><span class="brand-mark">S</span><div><span class="eyebrow">SALÃO.GESTÃO</span></div></div><h1>${titulo}</h1>${corpo}</section></main>`;
   return raiz().querySelector(".login-card");
 }
 const erroBox = (el) => el.querySelector(".login-erro") || el.insertAdjacentElement("afterbegin", Object.assign(document.createElement("div"), { className: "alert erro login-erro", role: "alert" }));
@@ -37,7 +38,7 @@ function restaurarPublico() {
   const el = tela("Restaurar backup", `<p class="muted">Substitui os dados deste aparelho pelos do arquivo.</p><label class="field">Arquivo<input type="file" id="arq" accept=".salaobackup,.json"></label><div class="form-actions"><button class="button" id="rest">Restaurar</button><a class="button button-light" href="#/">Voltar</a></div><div id="msg"></div>`);
   el.querySelector("#rest").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return; const rel = await Bkp.validar(await f.text());
     if (!rel.ok) return (el.querySelector("#msg").innerHTML = `<div class="alert erro">${rel.erros.map(esc).join("<br>")}</div>`);
-    if (await Usr.existeAlgum() && !confirm("Isto substituirá todos os dados atuais deste aparelho. Continuar?")) return;
+    if (await Usr.existeAlgum() && !(await confirmar("Isto substituirá todos os dados atuais deste aparelho. Continuar?", { perigo: true, titulo: "Substituir dados" }))) return;
     try { await Bkp.importar(rel, { permissao: false }); location.hash = "#/"; location.reload(); } catch (e) { el.querySelector("#msg").innerHTML = `<div class="alert erro">${esc(e.message)}</div>`; } };
 }
 function parse() { const h = location.hash.replace(/^#\/?/, ""), [caminho, qs] = h.split("?"); return [caminho.replace(/\/$/, ""), new URLSearchParams(qs || "")]; }
@@ -50,7 +51,7 @@ async function rotear() {
   if (p && !pode(p)) { location.hash = "#/hoje"; return; }
   let ent = null; for (const [re, fn] of ROTAS) { const m = caminho.match(re); if (m) { ent = [m, fn]; break; } }
   await montar(base === "" ? "hoje" : base === "atendimento" || base === "cliente" || base === "servico" ? { atendimento: "agenda", cliente: "clientes", servico: "servicos" }[base] : base);
-  const vista = document.getElementById("vista"), rec = () => rotear();
+  const vista = document.getElementById("vista"), rec = () => rotear(); vista.innerHTML = esqueleto();
   try { const r = ent ? await ent[1](ent[0], q) : { html: `<div class="empty-state"><h3>Página não encontrada</h3><a class="button" href="#/hoje">Ir para Hoje</a></div>` };
     if (eu !== atual) return; if (r.redirecionar) { location.hash = r.redirecionar; return; }
     vista.innerHTML = r.html; r.depois && (await r.depois(vista, rec)); window.desenharGraficos && window.desenharGraficos(); }
@@ -78,7 +79,7 @@ function mostrarAvisoAtualizacao() {
   b.hidden = false; const bt = document.getElementById("botao-atualizar");
   if (!pode("dados.gerir")) { bt.hidden = true; b.firstChild.textContent = "Nova versão disponível. Peça ao administrador para atualizar. "; return; }
   bt.onclick = async () => { bt.disabled = true; bt.textContent = "Criando backup…";
-    try { await Man.aplicarAtualizacao((f) => { if (f === "backup-ok") bt.textContent = "Backup validado ✓ — atualizando…"; }); }
+    try { await Man.aplicarAtualizacao((f) => { if (f === "backup-ok") bt.textContent = "Backup validado — atualizando…"; }); }
     catch (e) { toast("Atualização cancelada: " + e.message + " Seus dados e a versão atual continuam intactos.", "erro"); bt.disabled = false; bt.textContent = "Atualizar agora"; } };
 }
 function registrarSW() {
