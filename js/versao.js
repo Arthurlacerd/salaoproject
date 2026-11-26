@@ -6,15 +6,15 @@
  * "banco" = versão NATIVA do IndexedDB; "schema" = versão lógica das migrations. */
 globalThis.SALAO_VERSAO = {
   "sistema": "Salão.gestão",
-  "versao": "11.0.0",
+  "versao": "11.1.0",
   "data": "2026-11-26",
   "banco": 1,
   "schema": 2,
   "alteracoes": [
-    "Nova identidade visual: cards com contorno firme, sombras sólidas, tipografia forte e ícones em tiles",
-    "Design System central (tokens de cor, tipografia, bordas, raios, sombras, espaçamento e movimento)",
-    "Dashboard Hoje modular, navegação agrupada, menu inferior flutuante no celular e modais próprios",
-    "Backup, restauração, atualização segura, IndexedDB e modo offline preservados"
+    "Instalação no Android: a identidade do app passa a ser a pasta do app (antes era a raiz do domínio, compartilhada com outros apps)",
+    "Service worker valida cada arquivo e recusa redirecionamentos (ex.: página de login), evitando que o app deixe de abrir",
+    "Novo Diagnóstico em Configurações › Sistema: HTTPS, manifest, ícones, service worker, offline, IndexedDB e instalação",
+    "Pronto para GitHub Pages em subpasta (.nojekyll e caminhos relativos); dados, backup e restauração preservados"
   ],
   "arquivos": [
     "css/ds11.css",
@@ -31,6 +31,7 @@ globalThis.SALAO_VERSAO = {
     "js/data/backup.js",
     "js/data/clientes.js",
     "js/data/database.js",
+    "js/data/diagnostico.js",
     "js/data/financeiro.js",
     "js/data/manutencao.js",
     "js/data/migracoes.js",

@@ -8,6 +8,7 @@ import { esc, toast, confirmar, esqueleto } from "./ui/util.js";
 import { ic, tile } from "./ui/icones.js";
 import { montar, rede } from "./ui/shell.js";
 import { ROTAS } from "./ui/views.js";
+import { marcarInstalacao } from "./data/diagnostico.js";
 
 const raiz = () => document.body;
 const PERM = { painel: "financeiro.ler", agenda: "agenda.ler", atendimento: "agenda.ler", clientes: "clientes.ler", cliente: "clientes.ler", servicos: "servicos.ler", servico: "servicos.gravar", financeiro: "financeiro.ler", despesas: "despesas.gravar", dados: "dados.gerir", privacidade: "dados.gerir", usuarios: "usuarios.gerir", config: "config.gerir", manutencao: "dados.gerir", auditoria: "config.gerir" };
@@ -91,7 +92,8 @@ function registrarSW() {
   }).catch((e) => console.warn("SW", e));
   let rec = false; const tinha = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener("controllerchange", () => { if (tinha && !rec) { rec = true; location.reload(); } });
 }
-addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); window.__promptInstalar = e; const s = document.getElementById("instalar-agora"); if (s) s.hidden = false; });
+addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); window.__promptInstalar = e; marcarInstalacao("disponivel"); const s = document.getElementById("instalar-agora"); if (s) s.hidden = false; });
+addEventListener("appinstalled", () => { window.__promptInstalar = null; marcarInstalacao("concluida"); const s = document.getElementById("instalar-agora"); if (s) s.hidden = true; toast("Salão.gestão instalado. Abra pelo ícone do aplicativo."); }); // o Android confirmou a instalação
 addEventListener("online", rede); addEventListener("offline", rede); addEventListener("hashchange", rotear);
 
 (async function boot() {

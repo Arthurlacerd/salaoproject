@@ -414,3 +414,9 @@ html[data-theme="dark"] .alert.sucesso { background: var(--state-ok-bg); color: 
 .kpi-text, .kpi .stat-label, .kpi .stat-note { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
 .kpi-grid > * { min-width: 0; }
 @media (max-width: 420px) { .kpi-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── 15. Diagnóstico (11.1): reaproveita .insights, .badge e .facts; só o estado "falha" é novo ── */
+.insight-erro > span:first-child { background: var(--state-bad-bg); color: var(--state-bad); }
+.diag-list .insight > div, .diag .facts dd { min-width: 0; overflow-wrap: anywhere; }
+.diag-list .badge { margin-left: var(--space-1); vertical-align: 1px; }
+.diag-relatorio { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 var(--space-5); padding: var(--space-4); border: var(--bw-2) solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font-size: var(--fs-xs); }
