@@ -63,6 +63,9 @@ Do mais simples ao mais drástico. **Nenhum destes passos apaga dados**, exceto 
 1. **Diagnóstico:** Configurações › Sistema › Diagnóstico › **Copiar relatório** e envie a quem dá suporte. O relatório
    não contém clientes, telefones, valores, senhas nem conteúdo de backups.
 2. **Tela "O aplicativo precisa voltar para a versão atual":** toque em **Abrir a versão atual**.
+2a. **Uma restauração deu errado ou deixou você sem acesso:** use **Desfazer a última restauração** (Dados e backup, ou o
+   link na tela de login). Sem login, ele só funciona enquanto ninguém entrou depois da restauração; não mostra nem baixa
+   dados e também pode ser desfeito.
 3. **Endereço de emergência:** com internet, abra o endereço do app terminando em `?recuperar=1`
    (ex.: `https://USUARIO.github.io/salaoproject/?recuperar=1`). O service worker desafixa qualquer versão e abre a atual.
    Funciona mesmo que a versão fixada não consiga abrir.
@@ -70,7 +73,20 @@ Do mais simples ao mais drástico. **Nenhum destes passos apaga dados**, exceto 
    andamento / CDN", espere alguns minutos e use Manutenção › Verificar atualização. Se persistir, a publicação está
    quebrada: publique uma correção com versão nova.
 5. **Último recurso (com backup):** baixe um `.salaobackup` (Manutenção › Exportar backup), limpe os dados do site no
-   Chrome, abra o app de novo e restaure em **Restaurar backup**.
+   Chrome, abra o app de novo e restaure em **Restaurar backup** (no primeiro acesso a restauração funciona sem login).
+
+## 4b. Regras da restauração (11.3)
+
+- **Quem pode restaurar:** com administradores no aparelho, só um administrador autenticado (Dados e backup ou Manutenção).
+  Sem login, só em aparelho sem nenhum administrador que consiga entrar (primeiro acesso, dados perdidos).
+- **Prova de acesso:** se o backup traz usuários, informe o usuário e a senha de um administrador **do backup**; a senha é
+  conferida no arquivo antes de qualquer alteração. Depois da restauração, entre com esse usuário.
+- **Nada muda se algo falhar:** o arquivo é validado por completo antes; a gravação é uma única transação conferida antes
+  de confirmar; antes de gravar, uma cópia do estado atual é guardada ("Cópia antes da restauração").
+- **Cópia de emergência:** na prévia, com login, "Baixar cópia do estado atual" (recomendado).
+- **Estado inconsistente:** exportar continua possível, mas o arquivo vem marcado "apenas para recuperação/análise"
+  (nome terminado em `-INCONSISTENTE`) e não é aceito como backup normal.
+- **Backups 9.x:** compatibilidade não verificada; um arquivo só é restaurado se passar em todas as validações.
 
 ## 5. Identidade do aplicativo
 

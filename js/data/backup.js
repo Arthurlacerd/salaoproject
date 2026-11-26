@@ -1,18 +1,14 @@
 import { transacao, ler, agora, norm, auditar, VERSAO_APP, VERSAO_BANCO, VERSAO_SCHEMA, INFO, TABELAS, config } from "./database.js";
 import { exigir } from "./permissoes.js";
-export const FORMATO = "salao-gestao-backup", VERSAO_FORMATO = 1, LIMITE = 30 * 1024 * 1024;
-const SENSIVEIS = ["senha_hash", "senha_versao"];
-// Preferências próprias de cada aparelho: não viajam no backup (evita regredir migrations ao restaurar).
-const LOCAIS = ["schema_versao", "historico_migracoes", "historico_versoes"];
-const TABELAS_PERMITIDAS = ["clientes", "servicos", "atendimentos", "pagamentos", "despesas", "auditoria", "configuracoes_sistema", "usuarios"];
-// JSON canônico idêntico ao do Python (sort_keys, separators compactos, unicode cru) => checksum compatível com o 9.0.
-export function canonico(v) {
-  if (Array.isArray(v)) return "[" + v.map(canonico).join(",") + "]";
-  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canonico(v[k])).join(",") + "}";
-  return JSON.stringify(v === undefined ? null : v);
-}
-export async function sha256(texto) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join(""); }
-const completa = (c, v) => ({ ...c, ...v });
+import { FORMATO, VERSAO_FORMATO, canonico, sha256 } from "./formatos_backup.js";
+import { analisarTexto, analisarDoc, AVISO_INCONSISTENTE, LIMITE_BYTES } from "./validacao_backup.js";
+// 11.3: formato e checksum em formatos_backup.js; análise em validacao_backup.js; restauração segura em restauracao.js.
+export { FORMATO, VERSAO_FORMATO, canonico, sha256 };
+export const LIMITE = LIMITE_BYTES;
+// Chaves de configuração que nunca entram nem saem de um backup: senhas fora da tabela de usuários e preferências próprias
+// de cada aparelho (estas evitam regredir migrations ao restaurar).
+export const SENSIVEIS = ["senha_hash", "senha_versao"];
+export const LOCAIS = ["schema_versao", "historico_migracoes", "historico_versoes"];
 export async function montar({ incluirUsuarios = true } = {}) {
   const [cl, sv, at, pg, de, au, us, cfg] = await Promise.all(["clientes", "servicos", "atendimentos", "pagamentos", "despesas", "auditoria", "usuarios", "config"].map(ler));
   const tabelas = { clientes: cl, servicos: sv, atendimentos: at, pagamentos: pg, despesas: de, auditoria: au, configuracoes_sistema: cfg.filter((c) => !SENSIVEIS.includes(c.chave) && !LOCAIS.includes(c.chave)).map((c) => ({ chave: c.chave, valor: String(c.valor) })) };
@@ -22,50 +18,33 @@ export async function montar({ incluirUsuarios = true } = {}) {
   return doc;
 }
 export async function exportarTexto(opts) { return JSON.stringify(await montar(opts)); }
-export function nomeArquivo() { const d = new Date(), p = (n) => String(n).padStart(2, "0"); return `salao-gestao-backup-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.salaobackup`; }
-/** Gera o backup e o VALIDA (relendo o texto gerado e comparando com os dados vivos). Lança erro se algo não conferir. */
+export function nomeArquivo({ prefixo = "salao-gestao-backup", inconsistente = false } = {}) { const d = new Date(), p = (n) => String(n).padStart(2, "0"); return `${prefixo}-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${inconsistente ? "-INCONSISTENTE" : ""}.salaobackup`; }
+/** 11.3: gera uma cópia FIEL do estado atual — relida, com checksum conferido e contagens iguais às dos dados vivos.
+ *  A validação do conteúdo não bloqueia mais (D3): um estado inconsistente continua exportável para recuperação/análise,
+ *  mas o arquivo é MARCADO (estado_dados/aviso no cabeçalho, fora do checksum) e a restauração normal o recusa.
+ *  Devolve { texto, rel (análise do conteúdo), consistente }. */
 export async function criarValidado(opts) {
-  const texto = await exportarTexto(opts), rel = await validar(texto);
-  if (!rel.ok) throw new Error("O backup gerado não passou na validação: " + rel.erros.join(" "));
+  const doc = await montar(opts), texto = JSON.stringify(doc), lido = JSON.parse(texto);
+  if ((await sha256(canonico(lido.tabelas))) !== lido.sha256) throw new Error("A cópia gerada não confere (checksum). Nada foi gravado.");
   for (const [t, store] of [["clientes", "clientes"], ["atendimentos", "atendimentos"], ["pagamentos", "pagamentos"], ["despesas", "despesas"], ["servicos", "servicos"]])
-    if (rel.contagens[t] !== (await ler(store)).length) throw new Error(`O backup gerado não confere com os dados atuais (${t}).`);
-  return { texto, rel };
+    if ((lido.tabelas[t] || []).length !== (await ler(store)).length) throw new Error(`Os dados mudaram enquanto a cópia era gerada (${t}). Tente de novo.`);
+  const rel = await analisarDoc(lido, { finalidade: "copia" });
+  if (rel.ok) return { texto, rel, consistente: true };
+  return { texto: JSON.stringify({ ...doc, estado_dados: "inconsistente", aviso: AVISO_INCONSISTENTE }), rel, consistente: false };
 }
+/** Exporta o backup. Um estado inconsistente é exportado mesmo assim (emergência), com nome e cabeçalho marcados,
+ *  e não conta como "último backup baixado". */
 export async function baixar() {
-  exigir("dados.gerir"); const { texto } = await criarValidado();
-  baixarTexto(texto, nomeArquivo());
-  localStorage.setItem("salao_ultimo_download", agora()); await transacao(["auditoria"], "readwrite", (t) => auditar(t, "exportacao", "sistema", null, "Backup exportado")); return texto.length;
+  exigir("dados.gerir"); const { texto, rel, consistente } = await criarValidado();
+  baixarTexto(texto, nomeArquivo({ inconsistente: !consistente }));
+  if (consistente) localStorage.setItem("salao_ultimo_download", agora());
+  await transacao(["auditoria"], "readwrite", (t) => auditar(t, "exportacao", "sistema", null, consistente ? "Backup exportado" : "Backup de estado inconsistente exportado (apenas recuperação/análise)"));
+  return { bytes: texto.length, consistente, problemas: consistente ? [] : rel.erros };
 }
 export function baixarBlob(blob, nome) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = nome; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); }
 export function baixarTexto(texto, nome) { baixarBlob(new Blob([texto], { type: "application/octet-stream" }), nome); }
-export async function validar(texto) {
-  const rel = { ok: false, erros: [], avisos: [], contagens: {}, criado_em: "", versao_app: "", origem: "" };
-  if (!texto) { rel.erros.push("O arquivo está vazio."); return rel; }
-  if (texto.length > LIMITE) { rel.erros.push("Arquivo grande demais (limite de 30 MB)."); return rel; }
-  let doc; try { doc = JSON.parse(texto.replace(/^﻿/, "")); } catch { rel.erros.push("O arquivo não é um backup válido do Salão.gestão (conteúdo ilegível ou corrompido)."); return rel; }
-  if (!doc || doc.formato !== FORMATO || typeof doc.tabelas !== "object" || !doc.tabelas) { rel.erros.push("Este arquivo não é um backup do Salão.gestão."); return rel; }
-  if (!Number.isInteger(doc.versao_formato) || doc.versao_formato > VERSAO_FORMATO) { rel.erros.push("Este backup foi gerado por uma versão mais nova do sistema. Atualize o aplicativo antes de importar."); return rel; }
-  if ((await sha256(canonico(doc.tabelas))) !== doc.sha256) { rel.erros.push("O arquivo foi alterado ou está corrompido (verificação de integridade falhou). Nada foi importado."); return rel; }
-  const T = doc.tabelas; rel.criado_em = String(doc.criado_em || ""); rel.versao_app = String(doc.versao_app || ""); rel.origem = doc.origem || "servidor 9.x";
-  if (doc.sistema && doc.sistema !== INFO.sistema) { rel.erros.push("Este backup pertence a outro sistema."); return rel; }
-  const estranhas = Object.keys(T).filter((t) => !TABELAS_PERMITIDAS.includes(t)); if (estranhas.length) { rel.erros.push("Estrutura inesperada: tabela(s) desconhecida(s) — " + estranhas.join(", ") + "."); return rel; }
-  for (const t of ["clientes", "atendimentos", "despesas", "configuracoes_sistema"]) if (!(t in T)) rel.erros.push(`Backup incompleto: falta a tabela “${t}”.`);
-  for (const [t, l] of Object.entries(T)) { if (!Array.isArray(l) || l.some((x) => !x || typeof x !== "object")) rel.erros.push(`Tabela “${t}” malformada.`); else rel.contagens[t] = l.length; }
-  if (rel.erros.length) return rel;
-  if (["clientes", "atendimentos", "pagamentos", "despesas"].some((t) => (T[t] || []).some((x) => x.id == null))) rel.erros.push("Há registros sem identificador (id).");
-  const ruim = (t, f) => (T[t] || []).filter((x) => !f(x)).length, dt = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v), cent = (v) => Number.isInteger(v) && v >= 0;
-  for (const [t, f, m] of [["clientes", (x) => typeof x.nome === "string" && x.nome.trim(), "sem nome"], ["atendimentos", (x) => dt(x.data) && cent(x.valor_centavos), "com data ou valor inválido"], ["pagamentos", (x) => cent(x.valor_centavos) && dt(x.data), "com data ou valor inválido"], ["despesas", (x) => dt(x.data) && cent(x.valor_centavos), "com data ou valor inválido"],
-    ["usuarios", (x) => typeof x.usuario === "string" && ["admin", "recepcao", "funcionario"].includes(x.perfil) && typeof x.senha_hash === "string" && x.senha_hash.startsWith("pbkdf2$") && !("senha" in x), "inválido ou com senha fora do formato protegido"]])
-    { const n = ruim(t, f); if (n) rel.erros.push(`${n} registro(s) de “${t}” ${m}.`); }
-  if (rel.erros.length) return rel;
-  const cli = new Set(T.clientes.map((c) => c.id)), ats = new Set(T.atendimentos.map((a) => a.id));
-  const o1 = T.atendimentos.filter((a) => !cli.has(a.cliente_id)).length; if (o1) rel.erros.push(`${o1} atendimento(s) apontam para clientes que não estão no backup.`);
-  const o2 = (T.pagamentos || []).filter((p) => !ats.has(p.atendimento_id)).length; if (o2) rel.erros.push(`${o2} pagamento(s) apontam para atendimentos que não estão no backup.`);
-  // 11.2: não existe conversão de estrutura — os registros são importados como estão (o formato .salaobackup v1 é o mesmo do 9.x).
-  if (/^[0-9]\./.test(rel.versao_app) && +rel.versao_app.split(".")[0] < 10) rel.avisos.push(`Backup da versão ${rel.versao_app} (servidor) detectado: os registros são importados como estão no arquivo, depois de validados.`);
-  if (!("usuarios" in T)) rel.avisos.push("Este backup não contém usuários: os usuários e senhas deste aparelho serão mantidos.");
-  rel.ok = !rel.erros.length; rel.doc = rel.ok ? doc : null; return rel;
-}
+/** Análise completa do arquivo antes de qualquer gravação (11.3, validacao_backup.js). Nunca lança. */
+export function validar(texto) { return analisarTexto(texto); }
 export async function comparar(rel) { // conflitos/atenção antes de substituir
   const atual = {}; for (const t of ["clientes", "atendimentos", "despesas", "pagamentos"]) atual[t] = (await ler(t)).length;
   return { atual, novo: rel.contagens, substituiraDados: Object.values(atual).some((n) => n > 0) };
@@ -84,8 +63,8 @@ export function politicaRetencao(lista, r = RETENCAO) {
   while (total > r.bytes && mantidos.length > r.minimo) { const b = mantidos.pop(); manter.delete(b.id); total -= b.tamanho || 0; }
   return ord.filter((b) => !manter.has(b.id)).map((b) => b.id);
 }
-export async function snapshot(motivo) {
-  const { texto } = await criarValidado(); const reg = { criado_em: agora(), motivo, tamanho: texto.length, texto };
+export async function snapshot(motivo, extra = {}) {
+  const { texto, consistente } = await criarValidado(); const reg = { criado_em: agora(), motivo, tamanho: texto.length, texto, ...(consistente ? {} : { inconsistente: true }), ...extra };
   const id = await transacao(["backups"], "readwrite", async (t) => { const id = await t.backups.adicionar(reg); const todos = await t.backups.todos(); for (const x of politicaRetencao(todos.map(({ id, motivo, tamanho }) => ({ id, motivo, tamanho: tamanho || 0 })))) if (x !== id) await t.backups.apagar(x); return id; });
   const gravado = (await ler("backups")).find((b) => b.id === id); // confirma que foi gravado
   if (!gravado || gravado.texto !== texto) throw new Error("Não foi possível confirmar a gravação do backup automático.");
@@ -98,23 +77,9 @@ export async function backupAutomatico() {
   const ult = (await snapshots()).find((b) => b.motivo === "automatico"); if (ult && ult.criado_em.slice(0, 10) === hoje) return null;
   if (!(await ler("clientes")).length) return null; return snapshot("automatico");
 }
-export async function importar(rel, { permissao = true, semSnapshot = false } = {}) {
-  if (permissao) exigir("dados.gerir");
-  if (!rel.ok) throw new Error(rel.erros.join(" "));
-  const seguranca = semSnapshot ? null : await snapshot("pre_importacao"); // sempre guarda (e valida) o estado atual antes de substituir
-  const T = rel.doc.tabelas, mapa = ["clientes", "servicos", "atendimentos", "pagamentos", "despesas", "auditoria"];
-  const stores = [...mapa, "config", ...("usuarios" in T ? ["usuarios"] : [])];
-  await transacao(stores, "readwrite", async (t) => {
-    for (const s of stores.filter((s) => s !== "config")) await t[s].limpar();
-    for (const s of mapa) for (const r of T[s] || []) await t[s].salvar(r);
-    if ("usuarios" in T) for (const r of T.usuarios) await t.usuarios.salvar(r);
-    for (const c of T.configuracoes_sistema) if (!SENSIVEIS.includes(c.chave) && !LOCAIS.includes(c.chave)) await t.config.salvar({ chave: c.chave, valor: String(c.valor) });
-  });
-  for (const [t, store] of [["clientes", "clientes"], ["atendimentos", "atendimentos"], ["pagamentos", "pagamentos"], ["despesas", "despesas"], ["servicos", "servicos"]]) // valida o resultado
-    if (seguranca && (T[t] || []).length !== (await ler(store)).length) { await importar({ ok: true, doc: JSON.parse(seguranca?.texto || "{}"), contagens: {}, criado_em: seguranca.criado_em, origem: "pwa" }, { permissao: false, semSnapshot: true }); throw new Error("A restauração não passou na validação; os dados anteriores foram mantidos."); }
-  await transacao(["auditoria"], "readwrite", (t) => auditar(t, "importacao", "sistema", null, `Backup importado (${rel.criado_em}, origem ${rel.origem})`));
-  return rel.contagens;
-}
+/** Restauração segura (11.3): validação completa, autorização, prova de acesso, cópia antes da restauração e gravação
+ *  atômica conferida antes do commit — ver restauracao.js. Mantido por compatibilidade: devolve as contagens. */
+export async function importar(rel, opcoes = {}) { const R = await import("./restauracao.js"); return (await R.restaurar(rel, opcoes)).contagens; }
 // ---- CSV de clientes ----
 const dig = (t) => String(t || "").replace(/\D/g, "");
 function linhasCSV(texto, delim) {

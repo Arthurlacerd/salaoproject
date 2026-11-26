@@ -27,6 +27,8 @@ export function versaoAtual() {
   for (const f of ARQ_APP) if (existsSync(path.join(RAIZ, f))) cpSync(path.join(RAIZ, f), path.join(d, f), { recursive: true });
   return d;
 }
+/** A referência git existe neste clone? (síncrono: usado para decidir, ao registrar o teste, se ele roda ou é pulado) */
+export function refExiste(ref) { try { execSync(`git cat-file -e ${ref}^{commit}`, { cwd: RAIZ, stdio: "ignore" }); return true; } catch (_) { return false; } }
 /** Arquivos do app numa referência git (ex.: a 11.1.0 publicada). Devolve null se a referência não existir neste clone. */
 export function versaoGit(ref = REF_ANTERIOR) {
   try { execSync(`git cat-file -e ${ref}^{commit}`, { cwd: RAIZ, stdio: "ignore" }); } catch (_) { return null; }
@@ -60,12 +62,12 @@ export async function navegador() { return pw.chromium.launch(); }
 export async function abrir(page, url) {
   await page.goto(url); await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 30000 });
 }
-/** Primeiro acesso pela interface: cria a administradora e entra. */
-export async function configurarAdmin(page) {
+/** Primeiro acesso pela interface: cria a administradora e entra (credenciais configuráveis: "outro aparelho"). */
+export async function configurarAdmin(page, { usuario = "admin", senha = "senha-de-teste-123", nome = "Admin Teste", salao = "Salão Teste" } = {}) {
   await page.waitForSelector('form#f input[name="senha"]');
-  if (await page.$('input[name="salao"]')) await page.fill('input[name="salao"]', "Salão Teste");
-  if (await page.$('input[name="nome"]')) await page.fill('input[name="nome"]', "Admin Teste");
-  await page.fill('input[name="usuario"]', "admin"); await page.fill('input[name="senha"]', "senha-de-teste-123");
+  if (await page.$('input[name="salao"]')) await page.fill('input[name="salao"]', salao);
+  if (await page.$('input[name="nome"]')) await page.fill('input[name="nome"]', nome);
+  await page.fill('input[name="usuario"]', usuario); await page.fill('input[name="senha"]', senha);
   await page.click('form#f button[type="submit"]'); await page.waitForSelector("#vista");
 }
 export async function entrar(page) {
@@ -97,4 +99,18 @@ export async function estadoDados(page) {
   });
 }
 export const caches = (page) => page.evaluate(async () => (await caches.keys()).sort());
+/** Versão em teste (js/versao.js da árvore atual) — os testes não fixam mais o número da versão. */
+export const VERSAO = JSON.parse(readFileSync(path.join(RAIZ, "js/versao.js"), "utf8").match(/SALAO_VERSAO\s*=\s*(\{[\s\S]*\})\s*;?\s*$/)[1]).versao;
+/** Login pela tela (o mesmo caminho do usuário: passa por iniciarSessao). */
+export async function entrarUI(page, usuario = "admin", senha = "senha-de-teste-123") {
+  await page.goto(page.url().split("#")[0] + "#/"); await page.waitForSelector('form#f input[name="senha"]');
+  await page.fill('input[name="usuario"]', usuario); await page.fill('input[name="senha"]', senha); await page.click('form#f button[type="submit"]'); await page.waitForSelector("#vista");
+}
+/** "Impressão digital" do estado: checksum de TODAS as tabelas do backup + cópias locais + usuários. Para provar que nada mudou. */
+export async function impressao(page) {
+  return page.evaluate(async () => {
+    const B = await import("./js/data/backup.js"), D = await import("./js/data/database.js");
+    return { sha: (await B.montar()).sha256, copias: (await D.ler("backups")).map((b) => b.id), usuarios: (await D.ler("usuarios")).map((u) => u.usuario).sort() };
+  });
+}
 export function gravarSaida(nome, dados) { mkdirSync(SAIDA, { recursive: true }); writeFileSync(path.join(SAIDA, nome), typeof dados === "string" ? dados : JSON.stringify(dados, null, 2)); }

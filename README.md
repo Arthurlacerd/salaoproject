@@ -30,6 +30,8 @@ docs/               BUILD.md, PWA_UPDATE_PROCESS.md, CHANGELOG_*.md
 | **Publicar** | PR da branch para a `main`, com o workflow *Verificar PWA* verde e um merge único (`docs/PWA_UPDATE_PROCESS.md`) |
 | **Atualizar (usuário)** | aviso "Nova versão" ou Manutenção › Verificar atualização › **Atualizar agora** (faz backup antes) |
 | **Voltar de versão** | Manutenção › Versões disponíveis › Voltar para esta (só versões compatíveis com o banco atual) |
+| **Restaurar um backup** | Dados e backup › Importar › Verificar arquivo (com login de administrador; se o backup traz usuários, informe um administrador do backup) |
+| **Desfazer uma restauração** | Dados e backup › Desfazer a última restauração (ou o link na tela de login, enquanto ninguém entrou) |
 | **Recuperar uma instalação quebrada** | Diagnóstico; ou o botão **Abrir a versão atual**; ou o endereço com `?recuperar=1` (`docs/PWA_UPDATE_PROCESS.md › 4`) |
 
 ## Regras que não se quebram
@@ -41,3 +43,5 @@ docs/               BUILD.md, PWA_UPDATE_PROCESS.md, CHANGELOG_*.md
    `js/data/migracoes.js`, com `banco`/`schema` atualizados. O build confere.
 5. O service worker **nunca** acessa o IndexedDB. O build reprova.
 6. O `.salaobackup` baixado é a proteção principal dos dados. As cópias locais não sobrevivem à limpeza dos dados do site.
+7. Restaurar nunca pode deixar o aparelho sem administrador: valide tudo antes de gravar, grave numa única transação e
+   mantenha a cópia antes da restauração (`js/data/restauracao.js`; regras em `docs/PWA_UPDATE_PROCESS.md › 4b`).

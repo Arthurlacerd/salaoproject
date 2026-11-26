@@ -7,8 +7,8 @@ import { mkdirSync } from "node:fs";
 import { semNavegador, versaoAtual, servidor, navegador, abrir, configurarAdmin, semear, limpar, gravarSaida, SAIDA } from "./_ambiente.js";
 
 export const LARGURAS = [320, 375, 390, 430, 768, 1024, 1280, 1440, 1920];
-const ROTAS = ["hoje", "agenda", "clientes", "financeiro", "despesas", "dados", "config", "manutencao", "diagnostico", "sobre", "instalar"];
-let dir, srv, nav, ctx, page; const resultado = [];
+const ROTAS = ["hoje", "agenda", "clientes", "financeiro", "despesas", "dados", "config", "manutencao", "diagnostico", "sobre", "instalar", "desfazer"];
+let dir, srv, nav, ctx, page, backup; const resultado = [];
 before(async () => { if (semNavegador) return; dir = versaoAtual(); srv = await servidor(dir); nav = await navegador(); ctx = await nav.newContext({ viewport: { width: 390, height: 844 } }); page = await ctx.newPage(); await abrir(page, srv.url); await configurarAdmin(page); await semear(page); mkdirSync(path.join(SAIDA, "telas"), { recursive: true }); });
 after(async () => { if (semNavegador) return; gravarSaida("responsivo.json", resultado); await nav.close(); await srv.fechar(); limpar(dir); });
 const excesso = () => page.evaluate(() => { const w = document.documentElement.clientWidth, maiores = [...document.querySelectorAll("body *")].filter((e) => e.getBoundingClientRect().right > w + 1 && getComputedStyle(e).position !== "fixed").slice(0, 3).map((e) => e.tagName.toLowerCase() + (e.id ? "#" + e.id : "") + (e.className && typeof e.className === "string" ? "." + e.className.split(" ")[0] : "")); return { rolagem: document.documentElement.scrollWidth - w, maiores }; });
@@ -20,5 +20,12 @@ for (const w of LARGURAS) test(`responsivo ${w}px: sem rolagem horizontal nas ${
     const e = await excesso(); resultado.push({ largura: w, rota: r, ...e }); if (e.rolagem > 1) falhas.push(`${r}: +${e.rolagem}px (${e.maiores.join(", ")})`);
     if (["hoje", "diagnostico", "manutencao"].includes(r)) await page.screenshot({ path: path.join(SAIDA, "telas", `${w}-${r}.png`) });
   }
+  // 11.3: prévia da restauração (prova de acesso, cópia de emergência) com um backup real deste aparelho
+  await page.goto(srv.url + "#/dados"); await page.waitForSelector("#arq");
+  if (!backup) backup = await page.evaluate(async () => (await import("./js/data/backup.js")).exportarTexto());
+  await page.setInputFiles("#arq", { name: "b.salaobackup", mimeType: "application/octet-stream", buffer: Buffer.from(backup) });
+  await page.click("#analisar"); await page.waitForSelector('[data-restauracao="previa"]'); await page.waitForTimeout(150);
+  const e = await excesso(); resultado.push({ largura: w, rota: "dados+previa", ...e }); if (e.rolagem > 1) falhas.push(`dados+previa: +${e.rolagem}px (${e.maiores.join(", ")})`);
+  await page.screenshot({ path: path.join(SAIDA, "telas", `${w}-previa-restauracao.png`), fullPage: true });
   assert.deepEqual(falhas, []);
 });

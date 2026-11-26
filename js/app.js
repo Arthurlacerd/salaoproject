@@ -4,14 +4,15 @@ import { pode } from "./data/permissoes.js";
 import * as Usr from "./data/usuarios.js";
 import * as Bkp from "./data/backup.js";
 import { ler } from "./data/database.js";
-import { esc, toast, confirmar, esqueleto } from "./ui/util.js";
+import { esc, toast, esqueleto } from "./ui/util.js";
 import { ic, tile } from "./ui/icones.js";
 import { montar, rede } from "./ui/shell.js";
-import { ROTAS } from "./ui/views.js";
+import { ROTAS, mostrarPrevia, painelDesfazer } from "./ui/views.js";
+import * as Rst from "./data/restauracao.js";
 import { marcarInstalacao } from "./data/diagnostico.js";
 
 const raiz = () => document.body;
-const PERM = { painel: "financeiro.ler", agenda: "agenda.ler", atendimento: "agenda.ler", clientes: "clientes.ler", cliente: "clientes.ler", servicos: "servicos.ler", servico: "servicos.gravar", financeiro: "financeiro.ler", despesas: "despesas.gravar", dados: "dados.gerir", privacidade: "dados.gerir", usuarios: "usuarios.gerir", config: "config.gerir", manutencao: "dados.gerir", auditoria: "config.gerir" };
+const PERM = { painel: "financeiro.ler", agenda: "agenda.ler", atendimento: "agenda.ler", clientes: "clientes.ler", cliente: "clientes.ler", servicos: "servicos.ler", servico: "servicos.gravar", financeiro: "financeiro.ler", despesas: "despesas.gravar", dados: "dados.gerir", privacidade: "dados.gerir", usuarios: "usuarios.gerir", config: "config.gerir", manutencao: "dados.gerir", desfazer: "dados.gerir", auditoria: "config.gerir" };
 let relogio = null;
 
 function tela(titulo, corpo) {
@@ -20,32 +21,37 @@ function tela(titulo, corpo) {
 }
 const erroBox = (el) => el.querySelector(".login-erro") || el.insertAdjacentElement("afterbegin", Object.assign(document.createElement("div"), { className: "alert erro login-erro", role: "alert" }));
 
-async function recuperacao(m) {
-  const el = tela("Seus dados não foram encontrados", `<p>Este aparelho já tinha ${m.clientes} cliente(s) cadastrada(s) (última marcação: ${esc(m.quando)}), mas o banco está vazio. Isso acontece quando os <strong>dados do site são limpos</strong> no navegador, o app é desinstalado ou o modo privado é usado.</p><p class="muted">Não é possível recuperar dados apagados sem um arquivo de backup. Se você tiver um <strong>.salaobackup</strong>, restaure-o abaixo.</p><label class="field">Arquivo de backup<input type="file" id="arq" accept=".salaobackup,.json"></label><div class="form-actions"><button class="button" id="rest">Restaurar backup</button><button class="button button-light" id="novo">Começar do zero</button></div><div id="msg"></div>`);
+async function recuperacao(m) { // dados perdidos: aparelho sem usuários — restauração sem login permitida (D1)
+  const el = tela("Seus dados não foram encontrados", `<p>Este aparelho já tinha ${m.clientes} cliente(s) cadastrada(s) (última marcação: ${esc(m.quando)}), mas o banco está vazio. Isso acontece quando os <strong>dados do site são limpos</strong> no navegador, o app é desinstalado ou o modo privado é usado.</p><p class="muted">Não é possível recuperar dados apagados sem um arquivo de backup. Se você tiver um <strong>.salaobackup</strong>, restaure-o abaixo.</p><label class="field">Arquivo de backup<input type="file" id="arq" accept=".salaobackup,.json"></label><div class="form-actions"><button class="button" id="rest">Verificar arquivo</button><button class="button button-light" id="novo">Começar do zero</button></div><div id="previa"></div>`);
   el.querySelector("#novo").onclick = () => { localStorage.removeItem("salao_marca"); location.reload(); };
-  el.querySelector("#rest").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return toast("Escolha o arquivo.", "erro");
-    const rel = await Bkp.validar(await f.text()); if (!rel.ok) return (el.querySelector("#msg").innerHTML = `<div class="alert erro">${rel.erros.map(esc).join("<br>")}</div>`);
-    try { await Bkp.importar(rel, { permissao: false }); if (!(await Usr.existeAlgum())) throw new Error("O backup não contém usuários. Crie o acesso depois de importar a partir de um backup do 10.0, ou comece do zero."); location.hash = "#/hoje"; location.reload(); } catch (e) { el.querySelector("#msg").innerHTML = `<div class="alert erro">${esc(e.message)}</div>`; } };
+  el.querySelector("#rest").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return toast("Escolha o arquivo.", "erro"); mostrarPrevia(el, await Rst.analisarArquivo(f), f.name, { publico: true }); };
 }
 function configuracaoInicial() {
-  const el = tela("Bem-vinda ao Salão.gestão", `<p class="muted">Seus dados ficam <strong>somente neste dispositivo</strong>. Crie o acesso do administrador.</p><form id="f" class="form-grid"><label class="field field-full">Nome do salão<input name="salao" required maxlength="40"></label><label class="field">Seu nome<input name="nome" required maxlength="60"></label><label class="field">Usuário<input name="usuario" required maxlength="30" autocapitalize="none"></label><label class="field field-full">Senha (mín. 8)<input type="password" name="senha" required minlength="8" autocomplete="new-password"></label><div class="form-actions field-full"><button class="button" type="submit">Criar e entrar</button></div></form><hr><p class="muted">Já usa o Salão.gestão 9.0? Entre e importe seu <em>.salaobackup</em> em <strong>Dados e backup</strong> (ou <a href="#/restaurar" class="text-link">restaure agora</a>).</p>`);
+  const el = tela("Bem-vinda ao Salão.gestão", `<p class="muted">Seus dados ficam <strong>somente neste dispositivo</strong>. Crie o acesso do administrador.</p><form id="f" class="form-grid"><label class="field field-full">Nome do salão<input name="salao" required maxlength="40"></label><label class="field">Seu nome<input name="nome" required maxlength="60"></label><label class="field">Usuário<input name="usuario" required maxlength="30" autocapitalize="none"></label><label class="field field-full">Senha (mín. 8)<input type="password" name="senha" required minlength="8" autocomplete="new-password"></label><div class="form-actions field-full"><button class="button" type="submit">Criar e entrar</button></div></form><hr><p class="muted">Já tem um backup (.salaobackup) deste aplicativo? <a href="#/restaurar" class="text-link">Restaure agora</a>. A compatibilidade com backups da versão 9.x (servidor) não foi verificada.</p>`);
   el.querySelector("#f").onsubmit = async (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); try { await Usr.configurarPrimeiro(d); await Usr.entrar(d.usuario, d.senha); iniciarSessao(); } catch (err) { erroBox(el).textContent = err.message; } };
 }
-function login() {
-  const el = tela("Entrar", `<form id="f" class="form-grid"><label class="field field-full">Usuário<input name="usuario" required autocapitalize="none" autocomplete="username"></label><label class="field field-full">Senha<input type="password" name="senha" required autocomplete="current-password"></label><div class="form-actions field-full"><button class="button" type="submit">Entrar</button></div></form><p class="muted"><a class="text-link" href="#/restaurar">Restaurar backup</a></p>`);
+async function login() {
+  const semAdmin = await Rst.restauracaoSemLoginPermitida(); // D1: com administrador utilizável, não há restauração sem login
+  const el = tela("Entrar", `<form id="f" class="form-grid"><label class="field field-full">Usuário<input name="usuario" required autocapitalize="none" autocomplete="username"></label><label class="field field-full">Senha<input type="password" name="senha" required autocomplete="current-password"></label><div class="form-actions field-full"><button class="button" type="submit">Entrar</button></div></form>${semAdmin ? `<div class="alert aviso" data-login="sem-admin"><div>Nenhum administrador deste aparelho consegue entrar. Você pode <a class="text-link" href="#/restaurar">restaurar um backup</a> que contenha usuários.</div></div>` : ""}${Rst.indicioDesfazer() ? `<p class="muted"><a class="text-link" href="#/desfazer">Desfazer a última restauração</a></p>` : ""}`);
   el.querySelector("#f").onsubmit = async (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); try { await Usr.entrar(d.usuario, d.senha); iniciarSessao(); } catch (err) { erroBox(el).textContent = err.message; } };
 }
-function restaurarPublico() {
-  const el = tela("Restaurar backup", `<p class="muted">Substitui os dados deste aparelho pelos do arquivo.</p><label class="field">Arquivo<input type="file" id="arq" accept=".salaobackup,.json"></label><div class="form-actions"><button class="button" id="rest">Restaurar</button><a class="button button-light" href="#/">Voltar</a></div><div id="msg"></div>`);
-  el.querySelector("#rest").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return; const rel = await Bkp.validar(await f.text());
-    if (!rel.ok) return (el.querySelector("#msg").innerHTML = `<div class="alert erro">${rel.erros.map(esc).join("<br>")}</div>`);
-    if (await Usr.existeAlgum() && !(await confirmar("Isto substituirá todos os dados atuais deste aparelho. Continuar?", { perigo: true, titulo: "Substituir dados" }))) return;
-    try { await Bkp.importar(rel, { permissao: false }); location.hash = "#/"; location.reload(); } catch (e) { el.querySelector("#msg").innerHTML = `<div class="alert erro">${esc(e.message)}</div>`; } };
+async function restaurarPublico() { // sem login: SOMENTE em aparelho sem administrador utilizável (primeiro acesso / dados perdidos)
+  if (!(await Rst.restauracaoSemLoginPermitida())) {
+    tela("Restaurar backup", `<div class="alert aviso" data-restaurar="exige-login"><div>Este aparelho já tem administradores: para restaurar um backup, entre como administrador e use <strong>Dados e backup</strong>.</div></div><div class="form-actions"><a class="button" href="#/">Entrar</a>${Rst.indicioDesfazer() ? `<a class="button button-light" href="#/desfazer">Desfazer a última restauração</a>` : ""}</div>`);
+    return;
+  }
+  const temUsuarios = await Usr.existeAlgum();
+  const el = tela("Restaurar backup", `<p class="muted">Substitui os dados deste aparelho pelos do arquivo. Disponível sem entrar porque ${temUsuarios ? "nenhum administrador deste aparelho consegue entrar" : "este aparelho ainda não tem usuários"}.</p><label class="field">Arquivo<input type="file" id="arq" accept=".salaobackup,.json"></label><div class="form-actions"><button class="button" id="verif">Verificar arquivo</button><a class="button button-light" href="#/">Voltar</a></div><div id="previa"></div>`);
+  el.querySelector("#verif").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return toast("Escolha o arquivo.", "erro"); mostrarPrevia(el, await Rst.analisarArquivo(f), f.name, { publico: true }); };
+}
+function desfazerPublico() { // sem login: só devolve o estado anterior; não mostra nem baixa dados
+  const el = tela("Desfazer a última restauração", `<div id="desfazer"></div><p><a class="text-link" href="#/">Voltar</a></p>`);
+  painelDesfazer(el.querySelector("#desfazer"), { publico: true });
 }
 function parse() { const h = location.hash.replace(/^#\/?/, ""), [caminho, qs] = h.split("?"); return [caminho.replace(/\/$/, ""), new URLSearchParams(qs || "")]; }
 let atual = 0;
 async function rotear() {
-  if (!sessao.usuario) { const [c] = parse(); if (c === "restaurar") return restaurarPublico(); return (await Usr.existeAlgum()) ? login() : configuracaoInicial(); }
+  if (!sessao.usuario) { const [c] = parse(); if (c === "restaurar") return restaurarPublico(); if (c === "desfazer") return desfazerPublico(); return (await Usr.existeAlgum()) ? login() : configuracaoInicial(); }
   let [caminho, q] = parse(); if (!caminho || caminho === "entrar" || caminho === "restaurar") { location.hash = "#/hoje"; return; }
   const base = caminho.split("/")[0], p = PERM[base];
   const eu = ++atual;
@@ -67,6 +73,7 @@ async function avisos() {
   if (n && dias > 7) { b.hidden = false; b.innerHTML = `${d ? `Último backup baixado há ${Math.floor(dias)} dias.` : "Você ainda não baixou nenhum backup."} <a class="text-link" href="#/dados">Fazer backup</a>`; } else b.hidden = true;
 }
 async function iniciarSessao() {
+  await Rst.encerrarDesfazerSemLogin(); // alguém entrou: desfazer a última restauração passa a exigir login (Dados e backup)
   const c = await config(); try { if (c.backup_automatico === "1") await Bkp.backupAutomatico(); } catch (e) { console.warn(e); }
   zelarInatividade(+c.bloqueio_minutos || 0); if (!location.hash || /entrar|restaurar/.test(location.hash)) location.hash = "#/hoje"; rotear();
 }

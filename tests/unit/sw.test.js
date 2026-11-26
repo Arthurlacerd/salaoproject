@@ -10,7 +10,7 @@ const codigo = sw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'\\])\/\/[^\n
 test("service worker: carrega a versão de js/versao.js e usa cache salao-static-v<versão>", () => {
   assert.match(codigo, /importScripts\("js\/versao\.js"\)/);
   assert.match(codigo, /PREFIXO = "salao-static-v", CACHE = PREFIXO \+ V\.versao/);
-  assert.equal(V.versao, "11.2.0");
+  assert.match(V.versao, /^\d+\.\d+\.\d+$/); assert.equal(V.versao, JSON.parse(ler("package.json")).version, "js/versao.js e package.json com a mesma versão");
 });
 test("service worker: todos os arquivos do cache existem e não há arquivo do app fora da lista", () => {
   for (const f of ["index.html", "sw.js", ...V.arquivos]) assert.ok(existsSync(arq(f)), `listado mas inexistente: ${f}`);

@@ -1,7 +1,8 @@
 // PWA 11.2 em Chromium real: service worker, cache íntegro, offline, IndexedDB/migrations, Diagnóstico sem dados pessoais, medidas.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { semNavegador, versaoAtual, servidor, navegador, abrir, configurarAdmin, semear, estadoDados, caches, limpar, DADOS, gravarSaida } from "./_ambiente.js";
+import { semNavegador, versaoAtual, servidor, navegador, abrir, configurarAdmin, semear, estadoDados, caches, limpar, DADOS, gravarSaida, VERSAO } from "./_ambiente.js";
+const CACHE = "salao-static-v" + VERSAO;
 
 let dir, srv, nav, ctx, page; const medidas = {};
 before(async () => { if (semNavegador) return; dir = versaoAtual(); srv = await servidor(dir); nav = await navegador(); ctx = await nav.newContext(); page = await ctx.newPage(); });
@@ -14,8 +15,8 @@ T("primeira abertura: service worker instala, valida (hash) e controla a página
   await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 30000 }); medidas.sw_pronto_ms = Date.now() - t0;
   medidas.requisicoes_primeira_abertura_pagina = reqs.filter((u) => !u.includes("cache=")).length; // pedidos da página (fora a instalação do SW)
   medidas.requisicoes_servidor_total_inclui_sw = srv.log.length;
-  assert.deepEqual(await caches(page), ["salao-meta", "salao-static-v11.2.0"]);
-  const r = await page.evaluate(async () => { const c = await caches.open("salao-static-v11.2.0"), V = globalThis.SALAO_VERSAO; return { n: (await c.keys()).length, esperado: new Set(["index.html", "sw.js", ...V.arquivos]).size, erro: !!(await (await caches.open("salao-meta")).match("erro-instalacao")) }; });
+  assert.deepEqual(await caches(page), ["salao-meta", CACHE]);
+  const r = await page.evaluate(async (CACHE) => { const c = await caches.open(CACHE), V = globalThis.SALAO_VERSAO; return { n: (await c.keys()).length, esperado: new Set(["index.html", "sw.js", ...V.arquivos]).size, erro: !!(await (await caches.open("salao-meta")).match("erro-instalacao")) }; }, CACHE);
   assert.equal(r.n, r.esperado); assert.equal(r.erro, false);
 });
 
@@ -33,7 +34,7 @@ T("abertura com cache (service worker) e offline completo", async () => {
   try {
     const t1 = Date.now(); await page.reload(); await page.waitForSelector("#vista"); medidas.abertura_offline_ms = Date.now() - t1;
     for (const r of ["#/clientes", "#/agenda", "#/financeiro"]) { await page.goto(srv.url + r); await page.waitForSelector("#vista .panel, #vista .empty-state, #vista table, #vista section", { timeout: 10000 }); }
-    assert.equal(await page.evaluate(() => globalThis.SALAO_VERSAO.versao), "11.2.0");
+    assert.equal(await page.evaluate(() => globalThis.SALAO_VERSAO.versao), VERSAO);
     assert.equal((await estadoDados(page)).cliente.nome, DADOS.nome);
     // navegação para um endereço do app não cacheado (ex.: atalho antigo) cai no index.html
     await page.goto(srv.url + "?origem=atalho#/hoje"); await page.waitForSelector("#vista");
@@ -51,8 +52,8 @@ T("Diagnóstico: todos os itens exigidos, nenhuma falha e nenhum dado pessoal no
   for (const proibido of [DADOS.nome, "Maria", "98888", "7777", "123,45", "12345", "Shampoo", "pbkdf2", "senha_hash", "Admin Teste", "Salão Teste"]) {
     assert.ok(!rel.includes(proibido), `relatório contém "${proibido}"`); assert.ok(!tela.includes(proibido), `tela contém "${proibido}"`);
   }
-  for (const k of ["11.2.0", "Banco nativo v1", "schema v2", "Identidade do app", "Origem"]) assert.ok(rel.includes(k), `relatório sem "${k}"`);
-  assert.match(rel, /\[OK\] Cache: salao-static-v11\.2\.0 íntegro/);
+  for (const k of [VERSAO, "Banco nativo v1", "schema v2", "Identidade do app", "Origem"]) assert.ok(rel.includes(k), `relatório sem "${k}"`);
+  assert.ok(rel.includes(`[OK] Cache: ${CACHE} íntegro`), "cache íntegro no relatório");
   gravarSaida("relatorio-diagnostico.txt", rel);
 });
 

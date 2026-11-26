@@ -1,14 +1,18 @@
 import { transacao, ler, agora, auditar, sessao, definirConfig } from "./database.js";
 import { exigir } from "./permissoes.js";
-const ITER = 150000, enc = new TextEncoder();
+import { hashLegivel } from "./senha.js";
+const ITER = 150000, enc = new TextEncoder(); // formato do hash: ver senha.js (inalterado desde a 10.1)
 const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
-const deb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 async function derivar(senha, sal, iter) {
   const k = await crypto.subtle.importKey("raw", enc.encode(senha), "PBKDF2", false, ["deriveBits"]);
   return crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: sal, iterations: iter }, k, 256);
 }
 export async function hashSenha(senha) { const sal = crypto.getRandomValues(new Uint8Array(16)); return `pbkdf2$${ITER}$${b64(sal)}$${b64(await derivar(senha, sal, ITER))}`; }
-export async function conferir(senha, h) { const [, it, sal, hash] = h.split("$"); return b64(await derivar(senha, deb64(sal), +it)) === hash; }
+/** Confere a senha. Aceita exatamente os hashes que a 11.2 já aceitava; hash ilegível = senha incorreta (nunca erro técnico). */
+export async function conferir(senha, h) {
+  const l = hashLegivel(h); if (!l) return false;
+  try { return b64(await derivar(senha, l.sal, l.iteracoes)) === l.hashB64; } catch (_) { return false; }
+}
 const publico = (u) => ({ id: u.id, usuario: u.usuario, nome: u.nome, perfil: u.perfil, ativo: u.ativo });
 export async function existeAlgum() { return (await ler("usuarios")).length > 0; }
 export function validarSenha(s) { return (s || "").length >= 8 ? null : "A senha precisa ter pelo menos 8 caracteres."; }

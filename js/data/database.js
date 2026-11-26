@@ -20,10 +20,11 @@ export async function executarMigracoes() { return migrarDados(await abrir()); }
 export function fechar() { if (_db) { _db.close(); _db = null; } }
 const req = (r) => new Promise((ok, erro) => { r.onsuccess = () => ok(r.result); r.onerror = () => erro(r.error); });
 
-/** Executa `fn` em UMA transação (tudo ou nada). Dentro dela só use await nas operações recebidas. */
-export async function transacao(stores, modo, fn) {
+/** Executa `fn` em UMA transação (tudo ou nada). Dentro dela só use await nas operações recebidas.
+ *  opcoes.durability ("strict"): pedida ao navegador quando ele oferece; a correção nunca depende dela. */
+export async function transacao(stores, modo, fn, opcoes = {}) {
   const db = await abrir();
-  const t = db.transaction(stores, modo);
+  let t; if (opcoes.durability) { try { t = db.transaction(stores, modo, { durability: opcoes.durability }); } catch (_) { t = db.transaction(stores, modo); } } else t = db.transaction(stores, modo);
   const api = {};
   for (const s of stores) {
     const o = t.objectStore(s);

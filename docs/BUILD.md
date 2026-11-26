@@ -71,20 +71,25 @@ O `npm` aqui é só um atalho: não há `node_modules`, e os comandos podem ser 
 | `tests/unit/manifest.test.js` | JSON, name/short_name, scope/start_url, display, ícones reais, ausência de `id` |
 | `tests/unit/sw.test.js` | versão e nome do cache, arquivos existentes, hashes, nenhum acesso ao IndexedDB, fallback offline, ativação só a pedido, versão fixada compatível, `?recuperar=1`, cache sem reaproveitamento |
 | `tests/unit/indexeddb.test.js` | migrations numeradas, versão nativa/lógica = `versao.js`, nada destrutivo, migration 2 idempotente e reversível |
-| `tests/unit/backup.test.js` | checksum canônico idêntico ao do Python (9.x), validação, adulteração, formato futuro, órfãos, senha, backup 9.x, retenção |
+| `tests/unit/backup.test.js` | checksum canônico idêntico ao do Python, validação, adulteração, formato futuro, órfãos, senha, cabeçalho 9.x (sem prometer compatibilidade), retenção |
+| `tests/unit/senha.test.js` | formato do `senha_hash`: válido, limites de iterações, campos, algoritmo (Werkzeug/scrypt gerados pelo Python real), hexadecimal (caso da investigação), SHA-512, sal e hash inválidos; login tolerante sem erro técnico |
+| `tests/unit/validacao_backup.test.js` | validação completa antes de gravar: cabeçalho, checksum, **cada campo obrigatório de cada tabela**, listas fechadas, ids, relacionamentos, usuários, regras de acesso, mensagens sem dados pessoais, alarmes para mudanças futuras |
 | `tests/unit/manutencao.test.js` | P1: compatibilidade de retorno de versão |
 | `tests/unit/build.test.js` | o build aprova o repositório e reprova 12 tipos de problema |
 | `tests/e2e/pwa.test.js` | instalação do SW, IndexedDB real, migration única, offline, Diagnóstico sem dados pessoais, medidas |
-| `tests/e2e/atualizacao.test.js` | **11.1.0 → 11.2.0 real**, 11.2.0 → próxima versão (sintética), CDN desatualizada, backup antes, dados preservados, retorno, P1, emergência |
-| `tests/e2e/backup.test.js` | exportação, restauração, rollback automático, estado inconsistente, adulteração, retenção no banco real |
+| `tests/e2e/atualizacao.test.js` | atualização real **11.1.0 → atual** e **11.2.0 → atual**, atual → próxima versão (sintética), CDN desatualizada, backup antes, dados preservados, retorno, P1, emergência |
+| `tests/e2e/backup.test.js` | exportação, restauração com prova de acesso, ids repetidos recusados antes de gravar, estado inconsistente (D2), adulteração, retenção no banco real |
+| `tests/e2e/restauracao.test.js` | **inválido → recusado → estado intacto** (14 problemas), restauração válida pela tela, requisito 11, prova de acesso (D4), falha simulada na gravação e na cópia, D1 (com admin, primeiro acesso, sem admin utilizável), desfazer com e sem login, D2, D3, D5 |
+| `tests/e2e/compat_versoes.test.js` | backups gerados pelo código real de **10.1.0, 11.0.0, 11.1.0 e 11.2.0** restauram na versão atual com dados idênticos e login |
 | `tests/e2e/recuperacao.test.js` | tela de recuperação do boot sem loop e sem downgrade do banco |
-| `tests/e2e/responsivo.test.js` | 11 telas sem rolagem horizontal em 320, 375, 390, 430, 768, 1024, 1280, 1440 e 1920 px |
+| `tests/e2e/responsivo.test.js` | 12 telas e a prévia da restauração sem rolagem horizontal em 320, 375, 390, 430, 768, 1024, 1280, 1440 e 1920 px |
 
 ### Testes de integração
 
 Usam um servidor local que imita o GitHub Pages: o app fica em `/salaoproject/` e o servidor envia `Cache-Control: max-age=600`.
-Cada teste usa um **perfil de navegador novo e descartável**: nenhum dado real é lido ou alterado. O teste de atualização
-extrai a 11.1.0 publicada (commit `b8061f2`) do histórico do git. Para usar outra referência, defina `SALAO_REF_ANTERIOR`.
+Cada teste usa um **perfil de navegador novo e descartável**: nenhum dado real é lido ou alterado. Os testes de atualização e
+de compatibilidade extraem versões publicadas do histórico do git (10.1.0, 11.0.0, 11.1.0 e 11.2.0); sem o histórico completo
+eles aparecem como *ignorados*. Para trocar a referência da 11.1.0 ou da 11.2.0, defina `SALAO_REF_ANTERIOR` ou `SALAO_REF_11_2`.
 Se o Playwright não estiver disponível, esses testes aparecem como *ignorados*, e não como aprovados.
 
 Capturas de tela e medidas ficam em `tests/e2e/saida/`, que não vai para o git.

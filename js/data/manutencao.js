@@ -3,6 +3,7 @@ import { INFO, VERSAO_BANCO, VERSAO_SCHEMA, ler, agora, transacao, auditar, defi
 import * as Bkp from "./backup.js";
 import { criarZip } from "./zip.js";
 import { exigir } from "./permissoes.js";
+import { AVISO_INCONSISTENTE } from "./validacao_backup.js";
 
 export const cmp = (a, b) => { const x = String(a).split(".").map(Number), y = String(b).split(".").map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
 export const VERSAO = INFO.versao;
@@ -43,11 +44,11 @@ export async function exportarAplicacao() {
   const blob = criarZip(arq); Bkp.baixarBlob(blob, `salao-gestao-v${INFO.versao}.zip`); return { arquivos: arq.length, bytes: blob.size, nome: `salao-gestao-v${INFO.versao}.zip` };
 }
 export async function backupCompleto() {
-  exigir("dados.gerir"); const arq = await arquivosApp(), { texto, rel } = await Bkp.criarValidado();
+  exigir("dados.gerir"); const arq = await arquivosApp(), { texto, rel, consistente } = await Bkp.criarValidado(); // 11.3: estado inconsistente é exportado marcado (D3)
   const todos = [...arq.map((a) => ({ nome: "app/" + a.nome, dados: a.dados })), { nome: "data/backup.salaobackup", dados: texto },
-    { nome: "LEIA-ME.txt", dados: `Salão.gestão ${INFO.versao} — BACKUP COMPLETO (${agora()})\n\napp/  = arquivos do programa (backup da aplicação)\ndata/ = backup dos dados (.salaobackup; senhas só como hash, nunca em texto puro)\n\nPara restaurar os dados: Configurações → Manutenção → Importar backup, escolhendo data/backup.salaobackup.\nPara republicar o programa: hospede o conteúdo de app/ em um servidor HTTPS.\n` }];
-  const blob = criarZip(todos); Bkp.baixarBlob(blob, `salao-gestao-backup-completo-v${INFO.versao}.zip`); localStorage.setItem("salao_ultimo_download", agora());
-  await transacao(["auditoria"], "readwrite", (t) => auditar(t, "exportacao", "sistema", null, "Backup completo (aplicação + dados) exportado")); return { arquivos: todos.length, contagens: rel.contagens };
+    { nome: "LEIA-ME.txt", dados: `Salão.gestão ${INFO.versao} — BACKUP COMPLETO (${agora()})\n\napp/  = arquivos do programa (backup da aplicação)\ndata/ = backup dos dados (.salaobackup; senhas só como hash, nunca em texto puro)\n\nPara restaurar os dados: Configurações → Manutenção → Importar backup, escolhendo data/backup.salaobackup.\nPara republicar o programa: hospede o conteúdo de app/ em um servidor HTTPS.\n${consistente ? "" : `\nATENÇÃO: ${AVISO_INCONSISTENTE}\n`}` }];
+  const blob = criarZip(todos); Bkp.baixarBlob(blob, `salao-gestao-backup-completo-v${INFO.versao}.zip`); if (consistente) localStorage.setItem("salao_ultimo_download", agora()); // estado inconsistente não conta como backup saudável (D3)
+  await transacao(["auditoria"], "readwrite", (t) => auditar(t, "exportacao", "sistema", null, "Backup completo (aplicação + dados) exportado")); return { arquivos: todos.length, contagens: rel.contagens, consistente };
 }
 
 // ---------- atualização segura ----------
