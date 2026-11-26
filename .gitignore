@@ -1,0 +1,3 @@
+tests/e2e/saida/
+node_modules/
+__pycache__/

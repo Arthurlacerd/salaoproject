@@ -61,7 +61,8 @@ export async function validar(texto) {
   const cli = new Set(T.clientes.map((c) => c.id)), ats = new Set(T.atendimentos.map((a) => a.id));
   const o1 = T.atendimentos.filter((a) => !cli.has(a.cliente_id)).length; if (o1) rel.erros.push(`${o1} atendimento(s) apontam para clientes que não estão no backup.`);
   const o2 = (T.pagamentos || []).filter((p) => !ats.has(p.atendimento_id)).length; if (o2) rel.erros.push(`${o2} pagamento(s) apontam para atendimentos que não estão no backup.`);
-  if (/^[0-9]\./.test(rel.versao_app) && +rel.versao_app.split(".")[0] < 10) rel.avisos.push(`Backup da versão ${rel.versao_app} (servidor) detectado: a estrutura é convertida automaticamente ao importar.`);
+  // 11.2: não existe conversão de estrutura — os registros são importados como estão (o formato .salaobackup v1 é o mesmo do 9.x).
+  if (/^[0-9]\./.test(rel.versao_app) && +rel.versao_app.split(".")[0] < 10) rel.avisos.push(`Backup da versão ${rel.versao_app} (servidor) detectado: os registros são importados como estão no arquivo, depois de validados.`);
   if (!("usuarios" in T)) rel.avisos.push("Este backup não contém usuários: os usuários e senhas deste aparelho serão mantidos.");
   rel.ok = !rel.erros.length; rel.doc = rel.ok ? doc : null; return rel;
 }
@@ -69,9 +70,23 @@ export async function comparar(rel) { // conflitos/atenção antes de substituir
   const atual = {}; for (const t of ["clientes", "atendimentos", "despesas", "pagamentos"]) atual[t] = (await ler(t)).length;
   return { atual, novo: rel.contagens, substituiraDados: Object.values(atual).some((n) => n > 0) };
 }
+// ---- cópias locais (snapshots) — política de retenção 11.2 ----
+// Ficam no próprio IndexedDB: protegem contra erro de operação/atualização, NÃO contra limpeza dos dados do site.
+// A proteção principal continua sendo o arquivo .salaobackup baixado (nunca é afetado por esta política).
+export const RETENCAO = { maximo: 8, minimo: 2, bytes: 40 * 1024 * 1024, protegidos: ["pre_atualizacao", "pre_migracao", "pre_importacao", "pre_retorno_versao"] };
+/** Função pura: recebe [{id, motivo, tamanho}] e devolve os ids a APAGAR.
+ *  Mantém as `maximo` mais recentes + a mais recente de cada motivo protegido; depois, se o total passar de `bytes`,
+ *  apaga as mais antigas (nunca a mais recente de todas e nunca abaixo de `minimo`). */
+export function politicaRetencao(lista, r = RETENCAO) {
+  const ord = [...lista].sort((a, b) => b.id - a.id), manter = new Set(ord.slice(0, r.maximo).map((b) => b.id));
+  for (const m of r.protegidos) { const b = ord.find((x) => x.motivo === m); if (b) manter.add(b.id); }
+  let mantidos = ord.filter((b) => manter.has(b.id)), total = mantidos.reduce((s, b) => s + (b.tamanho || 0), 0);
+  while (total > r.bytes && mantidos.length > r.minimo) { const b = mantidos.pop(); manter.delete(b.id); total -= b.tamanho || 0; }
+  return ord.filter((b) => !manter.has(b.id)).map((b) => b.id);
+}
 export async function snapshot(motivo) {
   const { texto } = await criarValidado(); const reg = { criado_em: agora(), motivo, tamanho: texto.length, texto };
-  const id = await transacao(["backups"], "readwrite", async (t) => { const id = await t.backups.adicionar(reg); const todos = await t.backups.todos(); for (const b of todos.sort((a, b) => b.id - a.id).slice(8)) await t.backups.apagar(b.id); return id; });
+  const id = await transacao(["backups"], "readwrite", async (t) => { const id = await t.backups.adicionar(reg); const todos = await t.backups.todos(); for (const x of politicaRetencao(todos.map(({ id, motivo, tamanho }) => ({ id, motivo, tamanho: tamanho || 0 })))) if (x !== id) await t.backups.apagar(x); return id; });
   const gravado = (await ler("backups")).find((b) => b.id === id); // confirma que foi gravado
   if (!gravado || gravado.texto !== texto) throw new Error("Não foi possível confirmar a gravação do backup automático.");
   return { ...reg, id };

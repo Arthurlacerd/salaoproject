@@ -90,14 +90,27 @@ function registrarSW() {
     if (reg.waiting && navigator.serviceWorker.controller) aviso(reg.waiting);
     reg.addEventListener("updatefound", () => { const w = reg.installing; w && w.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) aviso(w); }); });
   }).catch((e) => console.warn("SW", e));
-  let rec = false; const tinha = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener("controllerchange", () => { if (tinha && !rec) { rec = true; location.reload(); } });
+  // recarrega UMA vez quando a nova versão assume; a trava na sessão impede loop de recarga entre aberturas
+  let rec = false; const tinha = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!(tinha || window.__atualizacaoPedida) || rec) return; // 11.2: também na 1ª sessão, se a atualização foi pedida
+    rec = true; let ult = 0; try { ult = +sessionStorage.getItem("salao_recarga_sw") || 0; sessionStorage.setItem("salao_recarga_sw", String(Date.now())); } catch (_) {}
+    if (Date.now() - ult > 10000) location.reload(); });
+}
+/** Tela de emergência quando o banco não abre por versão incompatível (ex.: versão antiga fixada). Não usa o IndexedDB. */
+function telaRecuperacaoVersao(e) {
+  const el = tela("O aplicativo precisa voltar para a versão atual", `<p>Os dados deste aparelho são de uma versão diferente da que está aberta. <strong>Nenhum dado foi apagado ou alterado.</strong></p><p class="muted">${esc(e.message)}</p><div class="form-actions"><button class="button" id="rec-atual">Abrir a versão atual</button></div><p class="muted">Se o botão não resolver, abra o endereço do app terminando em <code>?recuperar=1</code> com internet.</p>`);
+  el.querySelector("#rec-atual").onclick = async (ev) => { ev.currentTarget.disabled = true; await Man.recuperarVersaoAtual(); };
+}
+function limparMarcaRecuperacao() { // ?recuperar=1 já foi tratado pelo service worker: tira da barra de endereço
+  try { const u = new URL(location.href); if (u.searchParams.has("recuperar")) { u.searchParams.delete("recuperar"); history.replaceState(null, "", u.pathname + u.search + (u.hash || "#/hoje")); } } catch (_) {}
 }
 addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); window.__promptInstalar = e; marcarInstalacao("disponivel"); const s = document.getElementById("instalar-agora"); if (s) s.hidden = false; });
 addEventListener("appinstalled", () => { window.__promptInstalar = null; marcarInstalacao("concluida"); const s = document.getElementById("instalar-agora"); if (s) s.hidden = true; toast("Salão.gestão instalado. Abra pelo ícone do aplicativo."); }); // o Android confirmou a instalação
 addEventListener("online", rede); addEventListener("offline", rede); addEventListener("hashchange", rotear);
 
 (async function boot() {
-  try { await abrir(); } catch (e) { tela("Armazenamento indisponível", `<p>Este navegador não permitiu criar o banco local (modo privado ou armazenamento bloqueado). Abra em uma janela normal.</p><p class="muted">${esc(e.message)}</p>`); return; }
+  limparMarcaRecuperacao();
+  try { await abrir(); } catch (e) { if (e && e.codigo === "VERSAO_BANCO") { registrarSW(); return telaRecuperacaoVersao(e); } tela("Armazenamento indisponível", `<p>Este navegador não permitiu criar o banco local (modo privado ou armazenamento bloqueado). Abra em uma janela normal.</p><p class="muted">${esc(e.message)}</p>`); return; }
   try { navigator.storage?.persist?.(); } catch (_) {}
   try { // migrations de dados: backup validado antes (se houver dados), nunca apaga o banco
     if ((await migracoesPendentes()).length) { if ((await Usr.existeAlgum())) await Bkp.snapshot("pre_migracao"); await executarMigracoes(); }

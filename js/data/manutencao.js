@@ -73,17 +73,38 @@ export async function aplicarAtualizacao(aoProgresso = () => {}) {
   const reg = await navigator.serviceWorker.getRegistration(); if (!reg) throw new Error("Service worker não registrado.");
   aoProgresso("baixando"); if (!reg.waiting) { await reg.update(); await new Promise((ok, erro) => { const lim = setTimeout(() => erro(new Error("A nova versão não terminou de instalar. Seus dados e a versão atual continuam intactos.")), 90000);
     const ver = () => { if (reg.waiting) { clearTimeout(lim); ok(); } }; ver(); const w = reg.installing; if (w) w.addEventListener("statechange", () => { if (w.state === "redundant") { clearTimeout(lim); erro(new Error("A nova versão falhou na validação e não foi instalada. A versão atual continua funcionando e seus dados estão intactos.")); } ver(); }); reg.addEventListener("updatefound", () => { const x = reg.installing; x && x.addEventListener("statechange", () => { if (x.state === "redundant") { clearTimeout(lim); erro(new Error("A nova versão falhou na validação e não foi instalada. A versão atual continua funcionando e seus dados estão intactos.")); } ver(); }); }); const t = setInterval(() => { if (reg.waiting) clearInterval(t); ver(); }, 500); }); }
-  aoProgresso("ativando"); reg.waiting.postMessage("pular-espera"); return b; // app.js recarrega quando o novo SW assume
+  aoProgresso("ativando"); window.__atualizacaoPedida = true; reg.waiting.postMessage("pular-espera"); return b; // app.js recarrega quando o novo SW assume
 }
 
 // ---------- retorno de versão (não destrutivo) ----------
+/** Compatibilidade de uma versão guardada com os dados ATUAIS deste aparelho (função pura, testada).
+ *  Só é compatível a versão com a MESMA versão nativa do banco (IndexedDB) e schema lógico >= o atual:
+ *  - banco menor: o IndexedDB recusaria a abertura (VersionError) e o app não abriria;
+ *  - banco maior: ela tentaria mudar a estrutura (não é um retorno);
+ *  - schema menor: o código antigo não conhece as migrations de dados já aplicadas.
+ *  O retorno nunca faz downgrade do IndexedDB: se não for compatível, é bloqueado. */
+export function compatibilidade(v, atual = { banco: VERSAO_BANCO, schema: VERSAO_SCHEMA }) {
+  const banco = Number(v?.banco), schema = Number(v?.schema ?? 0);
+  if (!Number.isInteger(banco)) return { ok: false, motivo: `A versão ${v?.versao || "?"} não informa a versão do banco; o retorno foi bloqueado por segurança.` };
+  if (banco < atual.banco) return { ok: false, motivo: `A versão ${v.versao} usa a estrutura de dados v${banco}, mais antiga que a atual (v${atual.banco}). Voltar para ela impediria o aplicativo de abrir, então o retorno foi bloqueado. Seus dados não foram alterados.` };
+  if (banco > atual.banco) return { ok: false, motivo: `A versão ${v.versao} usa a estrutura de dados v${banco}, diferente da atual (v${atual.banco}). Use Atualizar em vez de voltar.` };
+  if (schema < atual.schema) return { ok: false, motivo: `A versão ${v.versao} não conhece as atualizações de dados já aplicadas neste aparelho (dados v${schema} < v${atual.schema}). O retorno foi bloqueado.` };
+  return { ok: true };
+}
 export async function podeVoltarPara(versao) {
+  if (!(await caches.has("salao-static-v" + versao))) return { ok: false, motivo: "Essa versão não está mais guardada neste aparelho." };
   const c = await caches.open("salao-static-v" + versao), r = await c.match("js/versao.js"); if (!r) return { ok: false, motivo: "Essa versão não está mais guardada neste aparelho." };
-  const v = lerVersaoTexto(await r.text()); if (v.banco > VERSAO_BANCO) return { ok: false, motivo: `A versão ${versao} usa uma estrutura de dados mais antiga/incompatível com a atual.` };
-  return { ok: true, versao: v };
+  let v; try { v = lerVersaoTexto(await r.text()); } catch (_) { return { ok: false, motivo: "A cópia guardada dessa versão está ilegível." }; }
+  const comp = compatibilidade(v); return comp.ok ? { ok: true, versao: v } : comp;
 }
 export async function voltarVersao(versao) {
   exigir("dados.gerir"); const p = await podeVoltarPara(versao); if (!p.ok) throw new Error(p.motivo);
-  await prepararAtualizacao("pre_retorno_versao"); const r = await swMsg({ tipo: "fixar-versao", versao }); if (!r.ok) throw new Error("Não foi possível fixar a versão."); return true;
+  await prepararAtualizacao("pre_retorno_versao"); const r = await swMsg({ tipo: "fixar-versao", versao }); if (!r.ok) throw new Error(r.motivo || "Não foi possível fixar a versão."); return true;
 }
+/** Saída de emergência: desafixa qualquer versão e abre a atual. Funciona mesmo se o banco não abrir (não usa o IndexedDB). */
+export async function recuperarVersaoAtual() {
+  try { await swMsg({ tipo: "desafixar" }); } catch (_) { /* SW indisponível: a navegação com ?recuperar=1 também desafixa */ }
+  location.replace(new URL("./?recuperar=1#/hoje", location.href).href);
+}
+export async function estadoSW() { try { return await swMsg({ tipo: "estado" }); } catch { return null; } }
 export async function usarMaisRecente() { await swMsg({ tipo: "desafixar" }); return true; }

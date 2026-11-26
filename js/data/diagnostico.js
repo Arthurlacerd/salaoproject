@@ -1,5 +1,6 @@
-// Diagnóstico do PWA (11.1): verifica NO PRÓPRIO APARELHO o que o Android precisa para instalar o app e funcionar offline.
-// Só lê: não altera dados, caches nem o service worker. O relatório não contém dados pessoais (apenas contagens e técnica).
+// Diagnóstico do PWA (11.1; ampliado na 11.2): verifica NO PRÓPRIO APARELHO o que o Android precisa para instalar o app e funcionar offline.
+// Só lê: não altera dados, caches nem o service worker. O relatório NÃO contém dados pessoais: nada de clientes, telefones,
+// valores, hashes de senha, contagens de registros ou conteúdo de backups — apenas informações técnicas.
 import { INFO, VERSAO_BANCO, VERSAO_SCHEMA, ler, config, agora } from "./database.js";
 
 // ---------- instalação: o que o navegador informou (beforeinstallprompt / escolha / appinstalled) ----------
@@ -58,6 +59,7 @@ async function verificarManifest(ctx) {
   // identidade: o Chrome resolve o "id" a partir da RAIZ do domínio; sem "id", usa o start_url (sem o #)
   const id = m.id != null ? new URL(m.id, (inicio || location).origin) : inicio ? new URL(inicio.href.split("#")[0]) : null;
   ctx.identidade = id ? id.href : "—"; ctx.escopo = escopo;
+  if (m.id != null) avisos.push(`manifest com "id" (${m.id}): a identidade definida na 11.1 é sem "id"; um "id" faria o Android tratar como outro aplicativo`);
   if (id && !id.href.startsWith(escopo)) erros.push(`a identidade do app (${id.pathname}) fica fora da pasta do app (${new URL(escopo).pathname}); outro app do mesmo domínio seria confundido com este`);
   const estado = erros.length ? "erro" : avisos.length ? "aviso" : "ok";
   const saida = [item("manifest", "Manifest", estado, [...erros, ...avisos].join("; ") || `${m.name} · ${m.display} · pasta ${new URL(escopo).pathname}`, `identidade: ${id ? id.pathname : "—"} · início: ${inicio ? inicio.pathname + inicio.hash : "—"}`)];
@@ -84,19 +86,50 @@ async function verificarManifest(ctx) {
   return saida;
 }
 
-async function lerErroInstalacao() {
-  try { if (!(await caches.has("salao-meta"))) return null; const r = await (await caches.open("salao-meta")).match("erro-instalacao"); return r ? await r.json() : null; } catch (_) { return null; }
+async function lerMeta(chave) { // salao-meta é escrito só pelo service worker; aqui só lemos (nunca cria o cache)
+  try { if (!(await caches.has("salao-meta"))) return null; return (await (await caches.open("salao-meta")).match(chave)) || null; } catch (_) { return null; }
+}
+async function lerErroInstalacao() { const r = await lerMeta("erro-instalacao"); try { return r ? await r.json() : null; } catch (_) { return null; } }
+async function lerFixada() { const r = await lerMeta("fixada"); return r ? (await r.text()) || null : null; }
+const hex = (buf) => [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, "0")).join("");
+
+function verificarVersao(c) {
+  const gravado = +(c.schema_versao || 1), ok = gravado === VERSAO_SCHEMA;
+  return item("versao", "Versão", ok ? "ok" : "aviso", `${INFO.sistema} ${INFO.versao} (${INFO.data}) · banco nativo v${VERSAO_BANCO} · schema dos dados v${gravado}/${VERSAO_SCHEMA}` + (ok ? "" : " · schema dos dados diferente do esperado: recarregue o app"));
 }
 
 async function verificarServiceWorker(ctx) {
   if (!("serviceWorker" in navigator)) return item("sw", "Service Worker", "erro", window.isSecureContext ? "Este navegador não oferece service worker." : "Indisponível sem HTTPS.");
-  const reg = await navigator.serviceWorker.getRegistration(), falha = await lerErroInstalacao();
-  const nota = falha ? ` Última tentativa de instalar a versão ${falha.versao} falhou: ${falha.erro}.` : "";
-  if (!reg) return item("sw", "Service Worker", "erro", "Não registrado. Abra o app com internet e recarregue a página." + nota);
-  if (!reg.active) return item("sw", "Service Worker", "aviso", "Instalando… recarregue em alguns segundos." + nota);
-  if (!navigator.serviceWorker.controller) return item("sw", "Service Worker", "aviso", "Ativo, mas ainda não controla esta página: recarregue." + nota);
+  const reg = await navigator.serviceWorker.getRegistration(); ctx.reg = reg;
+  if (!reg) return item("sw", "Service Worker", "erro", "Não registrado. Abra o app com internet e recarregue a página.");
+  if (!reg.active) return item("sw", "Service Worker", "aviso", "Instalando… recarregue em alguns segundos.");
+  if (!navigator.serviceWorker.controller) return item("sw", "Service Worker", "aviso", "Ativo, mas ainda não controla esta página: recarregue.");
   const fora = ctx.escopo && reg.scope !== ctx.escopo;
-  return item("sw", "Service Worker", falha || fora ? "aviso" : "ok", `Ativo · escopo ${new URL(reg.scope).pathname}` + (fora ? ` (o manifest usa ${new URL(ctx.escopo).pathname})` : "") + (reg.waiting ? " · nova versão aguardando: use Atualizar agora" : "") + (falha ? " ·" + nota : ""), reg.active.scriptURL ? `script: ${new URL(reg.active.scriptURL).pathname}` : "");
+  return item("sw", "Service Worker", fora ? "aviso" : "ok", `Ativo · escopo ${new URL(reg.scope).pathname}` + (fora ? ` (o manifest usa ${new URL(ctx.escopo).pathname})` : ""), reg.active.scriptURL ? `script: ${new URL(reg.active.scriptURL).pathname}` : "");
+}
+
+/** Cache da versão atual: presença e INTEGRIDADE (SHA-256 de cada arquivo contra js/versao.js › integridade). */
+async function verificarCache() {
+  const nomes = (await caches.keys()).filter((k) => k.startsWith("salao-static-v")), versoes = nomes.map((n) => n.slice("salao-static-v".length));
+  const c = await cacheAtual(), det = `versões guardadas: ${versoes.join(", ") || "nenhuma"}`;
+  if (!c) return item("cache", "Cache", "erro", `Cache da versão ${INFO.versao} ausente.`, det);
+  if (!INFO.integridade) return item("cache", "Cache", "aviso", "Esta versão não tem hashes de integridade para conferir.", det);
+  const divergentes = [];
+  for (const [f, h] of Object.entries(INFO.integridade)) { const r = await c.match(f, { ignoreSearch: true }); if (r && hex(await crypto.subtle.digest("SHA-256", await r.arrayBuffer())) !== h) divergentes.push(f); }
+  if (divergentes.length) return item("cache", "Cache", "erro", `${divergentes.length} arquivo(s) guardado(s) não conferem com a versão ${INFO.versao}: ${divergentes.slice(0, 4).join(", ")}${divergentes.length > 4 ? "…" : ""}`, det);
+  return item("cache", "Cache", "ok", `salao-static-v${INFO.versao} íntegro (${Object.keys(INFO.integridade).length} arquivos conferidos por SHA-256)`, det);
+}
+
+async function verificarAtualizacao(ctx, c) {
+  const fix = await lerFixada(), reg = ctx.reg, ult = c.ultima_verificacao_atualizacao;
+  const partes = [fix ? `versão ${fix} fixada (retorno de versão ativo)` : "usando a versão mais recente instalada", reg?.waiting ? "nova versão baixada e validada, aguardando: use Atualizar agora" : reg?.installing ? "nova versão sendo baixada" : "nenhuma atualização aguardando", `última verificação: ${ult || "nunca"}`];
+  return item("atualizacao", "Atualização", fix || reg?.waiting ? "aviso" : "ok", partes.join(" · "), fix ? "para voltar à versão atual: Manutenção › Usar a mais recente, ou abra o endereço com ?recuperar=1" : "");
+}
+
+async function verificarFalha() {
+  const f = await lerErroInstalacao();
+  if (!f) return item("falha", "Última falha de atualização", "ok", "Nenhuma falha registrada.");
+  return item("falha", "Última falha de atualização", "aviso", `Versão ${f.versao} recusada em ${String(f.quando).slice(0, 16).replace("T", " ")}: ${f.erro}`, "a versão atual continuou funcionando; tente atualizar de novo em alguns minutos");
 }
 
 async function verificarOffline() {
@@ -108,13 +141,17 @@ async function verificarOffline() {
   return item("offline", "Offline", ctrl ? "ok" : "aviso", `${lista.length} arquivos da versão ${INFO.versao} guardados neste aparelho` + (ctrl ? "" : " (recarregue para ativar)"));
 }
 
-async function verificarBanco() {
-  try {
-    const cli = (await ler("clientes")).length, at = (await ler("atendimentos")).length, c = await config();
-    let persist = null; try { persist = await navigator.storage?.persisted?.(); } catch (_) {}
-    return item("indexeddb", "IndexedDB", persist === false ? "aviso" : "ok", `Banco local v${VERSAO_BANCO} · dados v${c.schema_versao || "1"}/${VERSAO_SCHEMA} · ${cli} cliente(s), ${at} atendimento(s)` +
-      (persist === false ? " · armazenamento ainda não protegido: o navegador pode liberar espaço apagando dados. Instale o app e mantenha backups." : persist ? " · armazenamento protegido (persistente)" : ""));
+async function verificarBanco(c) { // sem contagens nem conteúdo: só se o banco abre e em que versão
+  try { await ler("config");
+    return item("indexeddb", "IndexedDB", "ok", `Banco local abre e lê normalmente · estrutura v${VERSAO_BANCO} · dados v${c.schema_versao || "1"}/${VERSAO_SCHEMA}`);
   } catch (e) { return item("indexeddb", "IndexedDB", "erro", "Não foi possível ler o banco local: " + e.message); }
+}
+
+async function verificarPersistencia() {
+  let persist = null, uso = null, quota = null; try { persist = await navigator.storage?.persisted?.(); const e = await navigator.storage?.estimate?.(); uso = e?.usage; quota = e?.quota; } catch (_) {}
+  const mb = (n) => (n == null ? "?" : (n / 1048576).toFixed(1) + " MB"), espaco = uso != null ? ` · uso ${mb(uso)} de ${mb(quota)}` : "";
+  if (persist) return item("persistencia", "Persistência", "ok", "Armazenamento protegido (persistente)" + espaco);
+  return item("persistencia", "Persistência", "aviso", (persist === false ? "Armazenamento ainda não protegido: o navegador pode liberar espaço apagando dados. Instale o app e mantenha backups baixados." : "O navegador não informou se o armazenamento é persistente.") + espaco);
 }
 
 function verificarInstalacao(nav) {
@@ -130,14 +167,15 @@ function verificarInstalacao(nav) {
 }
 
 export async function executar() {
-  const ctx = {}, nav = navegador();
-  const itens = [await verificarHttps(), ...(await verificarManifest(ctx)), await verificarServiceWorker(ctx), await verificarOffline(), await verificarBanco(), verificarInstalacao(nav)];
-  return { itens, quando: agora(), versao: INFO.versao, nav, modo: modoExibicao(), online: navigator.onLine, identidade: ctx.identidade || "—", endereco: location.origin + location.pathname, instalacao: lerInstalacao() };
+  const ctx = {}, nav = navegador(); let c = {}; try { c = await config(); } catch (_) {}
+  const itens = [verificarVersao(c), await verificarHttps(), ...(await verificarManifest(ctx)), await verificarServiceWorker(ctx), await verificarCache(), await verificarOffline(),
+    await verificarBanco(c), await verificarPersistencia(), await verificarAtualizacao(ctx, c), await verificarFalha(), verificarInstalacao(nav)];
+  return { itens, quando: agora(), versao: INFO.versao, banco: VERSAO_BANCO, schema: VERSAO_SCHEMA, nav, modo: modoExibicao(), online: navigator.onLine, identidade: ctx.identidade || "—", origem: location.origin, endereco: location.origin + location.pathname, instalacao: lerInstalacao() };
 }
 
 export function relatorio(d) { // texto para copiar e enviar a quem dá suporte — sem dados pessoais
   const rot = { ok: "OK", aviso: "ATENÇÃO", erro: "FALHA" };
   return [`${INFO.sistema} ${d.versao} — diagnóstico de ${d.quando}`, ...d.itens.map((i) => `[${rot[i.estado]}] ${i.titulo}: ${i.texto}${i.detalhe ? " (" + i.detalhe + ")" : ""}`),
-    `Endereço: ${d.endereco}`, `Identidade do app: ${d.identidade}`, `Navegador: ${d.nav.nome} · ${d.nav.so} · modo ${d.modo} · ${d.online ? "online" : "offline"}`,
+    `Origem: ${d.origem} · endereço: ${d.endereco}`, `Identidade do app: ${d.identidade}`, `Banco nativo v${d.banco} · schema v${d.schema}`, `Navegador: ${d.nav.nome} · ${d.nav.so} · modo ${d.modo} · ${d.online ? "online" : "offline"}`,
     `Instalação (eventos): ${Object.entries(d.instalacao).map(([k, v]) => `${k} ${v}`).join(", ") || "nenhum registrado"}`].join("\n");
 }

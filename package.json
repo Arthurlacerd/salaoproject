@@ -1,0 +1,14 @@
+{
+  "name": "salao-gestao",
+  "version": "11.2.0",
+  "private": true,
+  "description": "Salão.gestão — PWA 100% local. Sem dependências: estes scripts só usam Node (node:test) e Python 3.",
+  "type": "module",
+  "scripts": {
+    "build": "python3 tools/construir_pwa.py",
+    "verificar": "python3 tools/construir_pwa.py --verificar",
+    "test:unit": "node --test \"tests/unit/*.test.js\"",
+    "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/*.test.js\"",
+    "test": "python3 tools/construir_pwa.py --verificar --quieto && node --test \"tests/unit/*.test.js\" && node --test --test-concurrency=1 \"tests/e2e/*.test.js\""
+  }
+}

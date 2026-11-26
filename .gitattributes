@@ -1,0 +1,6 @@
+# Os hashes de integridade (js/versao.js) são calculados sobre os bytes do repositório, que são os bytes publicados no
+# GitHub Pages. Fixar LF evita que um checkout no Windows (CRLF) gere hashes diferentes dos publicados.
+* text=auto eol=lf
+*.png binary
+*.woff binary
+*.salaobackup -text

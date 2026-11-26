@@ -1,0 +1,21 @@
+# Verificação obrigatória de todo Pull Request e da main: build (lista de cache + hashes + manifest + SW + versão)
+# e testes unitários. Sem dependências externas (só Python 3 e Node do próprio runner).
+name: Verificar PWA
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build (somente verificação — não altera arquivos)
+        run: python3 tools/construir_pwa.py --verificar
+      - name: Testes unitários
+        run: node --test "tests/unit/*.test.js"

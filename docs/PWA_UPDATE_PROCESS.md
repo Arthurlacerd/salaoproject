@@ -1,0 +1,86 @@
+# Processo oficial de publicação e atualização — Salão.gestão
+
+> **Regra:** a `main` é o que está publicado. Nada chega à `main` sem passar por branch, build, testes e Pull Request.
+> **Não publique por "Add files via upload"** no site do GitHub: cada upload vira um commit e um deploy separado, e o
+> GitHub Pages chega a publicar estados intermediários (já aconteceu: houve um período sem `index.html`, `sw.js` e manifest).
+
+## 1. Publicar uma versão nova
+
+| Passo | O que fazer | Como conferir |
+|---|---|---|
+| 1. Branch | `git checkout main && git pull && git checkout -b versao-X.Y.Z` | nunca trabalhe direto na `main` |
+| 2. Versão | em `js/versao.js`, atualize `versao`, `data` e `alteracoes`; crie `docs/CHANGELOG_X_Y.md` | **todo** código alterado exige versão nova |
+| 3. Build | `python3 tools/construir_pwa.py` | sai com código 0 |
+| 4. Testes | `npm test` (build + unitários + navegador) | 0 falhas |
+| 5. Validação | `python3 tools/construir_pwa.py --verificar --relatorio /tmp/relatorio.md` | relatório "APROVADO" |
+| 6. Relatório | cole o relatório e o resultado dos testes na descrição do PR | — |
+| 7. Pull Request | `main` ← `versao-X.Y.Z` | o workflow **Verificar PWA** fica verde |
+| 8. Revisão | revise o diff e, se possível, teste num celular Android pelo endereço local | — |
+| 9. Merge | **um único** merge na `main` | um deploy só |
+| 10. Pages | o GitHub Pages publica em ~1 minuto | no celular: Configurações › Sistema › Diagnóstico › Atualização |
+
+Sempre faça o merge de uma vez só (merge commit ou squash). Nunca envie arquivos um por um na `main`.
+
+## 2. O que garante que uma publicação nunca quebra quem já usa
+
+1. **Versão por cache:** cada versão vive no seu próprio cache (`salao-static-vX.Y.Z`). A versão em uso não é tocada
+   enquanto a nova se instala.
+2. **Integridade por hash:** o service worker novo baixa **todos** os arquivos e confere o SHA-256 de cada um contra
+   `js/versao.js › integridade`, gerado pelo build. O `versao.js` precisa ser idêntico ao que o próprio SW carregou. Basta
+   um arquivo divergente para que a versão inteira seja recusada e nada seja gravado. A causa pode ser um deploy em
+   andamento, a CDN do Pages ainda entregando um arquivo antigo, um upload parcial ou alguém que esqueceu o build. O motivo
+   aparece no Diagnóstico › Última falha de atualização, e o navegador tenta de novo na próxima abertura ou em
+   **Verificar atualização**.
+3. **Versão já instalada nunca é sobrescrita:** se chegar um `versao.js` com o número de uma versão já instalada, o SW só o
+   aceita com conteúdo idêntico. Se falhar, só apaga o cache que ele mesmo criou. Na 11.1, esse caso podia apagar o cache
+   da versão em uso.
+4. **Nunca atualiza sozinho:** a nova versão fica *aguardando*. Quem tem permissão `dados.gerir` toca em **Atualizar agora**.
+   Primeiro é criado e validado um backup local (`pre_atualizacao`); se ele falhar, a atualização não continua. Depois
+   o SW novo assume e o app recarrega uma vez.
+5. **O IndexedDB nunca é tocado pelo service worker** (o build reprova qualquer acesso). Mudanças de estrutura só por
+   migration nova, não destrutiva, com backup `pre_migracao` antes.
+6. **O cache de memória do navegador não mistura versões:** o SW entrega o que está em cache com `Cache-Control: no-cache`.
+
+## 3. Retorno de versão (rollback)
+
+**Para o usuário:** Configurações › Manutenção › Versões disponíveis › **Voltar para esta**. Isso cria um backup
+`pre_retorno_versao` e fixa a versão. Para desfazer, use **Usar a mais recente**.
+
+- O aparelho guarda a versão atual e a anterior (mais uma eventualmente fixada).
+- **Só é permitido voltar para versões compatíveis:** com a mesma versão nativa do banco (`banco`) e um `schema` igual ou
+  maior que o atual. Versões incompatíveis são bloqueadas na página **e** no service worker, porque o IndexedDB recusaria
+  abrir e o app não abriria. Os dados nunca sofrem *downgrade*.
+- Se um pino incompatível existir por qualquer motivo, o service worker o ignora e desafixa sozinho.
+
+**Para quem publica:** para reverter uma publicação ruim para todos, **não** reverta a `main` para a versão anterior
+(o mesmo número de versão com outro conteúdo seria recusado). Publique uma versão **nova** (ex.: 11.2.1) com o código
+bom, pelo processo normal.
+
+## 4. Recuperar uma instalação quebrada
+
+Do mais simples ao mais drástico. **Nenhum destes passos apaga dados**, exceto o último, que só se aplica com backup em mãos.
+
+1. **Diagnóstico:** Configurações › Sistema › Diagnóstico › **Copiar relatório** e envie a quem dá suporte. O relatório
+   não contém clientes, telefones, valores, senhas nem conteúdo de backups.
+2. **Tela "O aplicativo precisa voltar para a versão atual":** toque em **Abrir a versão atual**.
+3. **Endereço de emergência:** com internet, abra o endereço do app terminando em `?recuperar=1`
+   (ex.: `https://USUARIO.github.io/salaoproject/?recuperar=1`). O service worker desafixa qualquer versão e abre a atual.
+   Funciona mesmo que a versão fixada não consiga abrir.
+4. **Versão aguardando que não instala:** veja Diagnóstico › Última falha de atualização. Se o motivo for "publicação em
+   andamento / CDN", espere alguns minutos e use Manutenção › Verificar atualização. Se persistir, a publicação está
+   quebrada: publique uma correção com versão nova.
+5. **Último recurso (com backup):** baixe um `.salaobackup` (Manutenção › Exportar backup), limpe os dados do site no
+   Chrome, abra o app de novo e restaure em **Restaurar backup**.
+
+## 5. Identidade do aplicativo
+
+A identidade do PWA instalado é a definida na 11.1: **sem `"id"` no manifest**. Nesse caso, a identidade é o `start_url`
+sem o `#`, ou seja, a pasta do app (`/salaoproject/`). **Não adicione `"id"`** nem mude `start_url` ou `scope`: o Android
+passaria a tratar como outro aplicativo (ícone duplicado ou sem atualizações). O build e os testes reprovam um `id`.
+
+## 6. Backup é a proteção principal
+
+As cópias automáticas (até 8, mais a última de cada tipo de segurança, até 40 MB) ficam **no próprio aparelho, dentro do
+mesmo banco**. Elas protegem contra erro de operação e de atualização, mas **não** contra a limpeza dos dados do site ou a
+desinstalação. O arquivo `.salaobackup` baixado, guardado fora do aparelho, continua sendo a proteção principal; o app
+avisa quando o último download tem mais de 7 dias.

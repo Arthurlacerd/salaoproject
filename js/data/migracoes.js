@@ -32,7 +32,7 @@ export function abrirBanco(nome, lista = MIGRACOES) {
     const r = indexedDB.open(nome, versaoNativa(lista));
     r.onupgradeneeded = (e) => { for (const m of lista.filter((m) => m.estrutura && m.versao > e.oldVersion).sort((a, b) => a.versao - b.versao)) m.estrutura(r.result, r.transaction); };
     r.onsuccess = () => ok(r.result);
-    r.onerror = () => erro(r.error && r.error.name === "VersionError" ? new Error("Os dados deste aparelho pertencem a uma versão mais nova do aplicativo. Atualize o aplicativo.") : r.error);
+    r.onerror = () => erro(r.error && r.error.name === "VersionError" ? Object.assign(new Error("Os dados deste aparelho pertencem a uma versão mais nova do aplicativo. Atualize o aplicativo."), { codigo: "VERSAO_BANCO" }) : r.error);
     r.onblocked = () => erro(new Error("Feche outras abas do Salão.gestão e tente de novo."));
   });
 }
