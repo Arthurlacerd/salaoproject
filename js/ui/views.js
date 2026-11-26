@@ -241,10 +241,11 @@ rota(/^dados$/, async () => {
 // ---------- restauração segura (11.3) ----------
 const ROTULOS_COPIA = { automatico: "Cópia automática diária", pre_importacao: "Cópia antes da restauração", pre_atualizacao: "Cópia antes de atualizar", pre_migracao: "Cópia antes de atualizar a estrutura dos dados", pre_retorno_versao: "Cópia antes de voltar de versão" };
 export const rotuloCopia = (c) => (ROTULOS_COPIA[c.motivo] || c.motivo) + (c.inconsistente ? " · estado inconsistente (apenas recuperação/análise)" : "");
-/** Prévia + confirmação. publico = sem login (aparelho sem administrador utilizável): não mostra dados atuais nem oferece download. */
+/** Prévia + confirmação. publico = sem login (aparelho sem nenhum usuário): não mostra dados atuais nem oferece download. */
 export async function mostrarPrevia(el, rel, nome, { publico = false } = {}) {
   const box = el.querySelector("#previa");
-  if (!rel.ok) { box.innerHTML = `<div class="alert erro" data-restauracao="bloqueada"><div><strong>Restauração bloqueada — nada foi alterado.</strong><ul class="plain-list">${rel.erros.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div></div>`; return; }
+  const erros = !rel.ok ? rel.erros : publico && !rel.temUsuarios ? [Rst.MENSAGENS.SEM_ACESSO_RESULTANTE] : null; // sem usuários, a restauração seria recusada
+  if (erros) { box.innerHTML = `<div class="alert erro" data-restauracao="bloqueada"><div><strong>Restauração bloqueada — nada foi alterado.</strong><ul class="plain-list">${erros.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div></div>`; return; }
   const cmp = publico ? { atual: {} } : await Bkp.comparar(rel), inconsistente = publico ? false : (await Rst.estadoAtualConsistente()) === false;
   box.innerHTML = `<section class="panel panel-pad" data-restauracao="previa"><h2>Prévia da restauração — ${esc(nome)}</h2><dl class="facts"><div><dt>Gerado em</dt><dd>${esc(rel.criado_em.replace("T", " ") || "não informado")}</dd></div><div><dt>Origem / versão</dt><dd>${esc(rel.origem)} · ${esc(rel.versao_app || "não informada")}</dd></div>${Object.entries(rel.contagens).map(([t, n]) => `<div><dt>${t.replace("_", " ")}</dt><dd>${n} no arquivo${cmp.atual[t] != null ? ` · ${cmp.atual[t]} agora` : ""}</dd></div>`).join("")}</dl>${rel.avisos.map((a) => `<div class="alert aviso">${esc(a)}</div>`).join("")}
   <div class="alert erro"><div><strong>A restauração substituirá os dados deste aparelho</strong> (clientes, agenda, atendimentos, pagamentos, despesas, serviços, configurações e histórico)${rel.temUsuarios ? " <strong>e também os usuários</strong>: depois dela, entre com um usuário do backup." : ". Os usuários deste aparelho serão mantidos."}</div></div>
@@ -262,12 +263,14 @@ export async function mostrarPrevia(el, rel, nome, { publico = false } = {}) {
       location.hash = r.usuariosSubstituidos || publico ? "#/" : "#/hoje"; setTimeout(() => location.reload(), 900); }
     catch (err) { box.querySelector("#restaurar-msg").innerHTML = `<div class="alert erro" data-restauracao="erro">${esc(err.message)}</div>`; bt.disabled = false; bt.textContent = "Restaurar backup"; } };
 }
-/** Desfazer a última restauração. publico = sem login: só enquanto os dados continuam como a restauração os deixou.
+/** Desfazer a última restauração. Sem login, só enquanto os dados continuam como a restauração os deixou; com ou sem login,
+ *  nunca para um estado sem administrador que consiga entrar. A decisão é a mesma do núcleo (Rst.avaliarDesfazer).
  *  Não mostra nem baixa dados: apenas a data da cópia. */
-export async function painelDesfazer(alvo, { publico = false } = {}) {
+export async function painelDesfazer(alvo) {
   const c = await Rst.ultimaCopiaPreRestauracao();
   if (!c) { alvo.innerHTML = `<p class="muted" data-desfazer="sem-copia">${esc(Rst.MENSAGENS.SEM_COPIA)}</p>`; return; }
-  if (publico && !(await Rst.podeDesfazerSemLogin())) { alvo.innerHTML = `<div class="alert aviso" data-desfazer="bloqueado">${esc(Rst.MENSAGENS.DESFAZER_BLOQUEADO)}</div>`; return; }
+  const av = await Rst.avaliarDesfazer();
+  if (!av.ok) { const tipo = { DESFAZER_BLOQUEADO: "bloqueado", DESFAZER_SEM_ADMIN: "sem-admin" }[av.codigo]; alvo.innerHTML = `<div class="alert ${tipo ? "aviso" : "erro"}" data-desfazer="${tipo || "erro"}">${esc(av.mensagem)}</div>`; return; }
   alvo.innerHTML = `<p>Volta os dados deste aparelho ao estado em que estavam <strong>antes da última restauração</strong> (cópia de ${esc(c.criado_em)}).</p>${c.inconsistente ? `<div class="alert aviso">Aquele estado tinha inconsistências e será recuperado exatamente como estava.</div>` : ""}<div class="alert erro">Os dados e os usuários atuais serão substituídos. Antes, uma cópia deles é guardada: esta operação também pode ser desfeita.</div><form class="restore-form" id="f-desfazer"><label class="field">Digite DESFAZER para confirmar<input name="c" autocomplete="off" required></label><button class="button" type="submit">Desfazer a última restauração</button></form><div id="desfazer-msg"></div>`;
   alvo.querySelector("#f-desfazer").onsubmit = async (e) => { e.preventDefault(); const bt = e.target.querySelector('button[type="submit"]');
     if (e.target.c.value.trim().toUpperCase() !== "DESFAZER") return toast("Digite DESFAZER para confirmar.", "erro");

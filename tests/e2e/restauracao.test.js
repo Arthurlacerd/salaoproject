@@ -21,6 +21,8 @@ async function aparelho({ semDados = false } = {}) { // aparelho com admin próp
   return { ctx, page };
 }
 const naPagina = (page, fn, arg) => page.evaluate(fn, arg);
+/** O elemento existe? Booleano de propósito: uma falha com o objeto do Playwright no assert estoura a memória ao ser relatada. */
+const existe = async (page, sel) => (await page.$(sel)) !== null;
 /** Analisa e tenta restaurar dentro da página; devolve o resultado ou { codigo, mensagem } do erro. */
 const restaurar = (page, texto, prova) => naPagina(page, async ([texto, prova]) => {
   const R = await import("./js/data/restauracao.js"), rel = await R.analisarTexto(texto);
@@ -30,6 +32,9 @@ const analisar = (page, texto) => naPagina(page, async (t) => { const r = await 
 const entrar = (page, c) => naPagina(page, async (c) => { try { await (await import("./js/data/usuarios.js")).entrar(c.usuario, c.senha); return true; } catch (_) { return false; } }, c);
 const sair = async (page) => { await naPagina(page, async () => (await import("./js/data/usuarios.js")).sair()); await page.reload(); };
 const tabelas = (page) => naPagina(page, async () => (await (await import("./js/data/backup.js")).montar()).tabelas);
+const desfazer = (page) => naPagina(page, async () => { try { await (await import("./js/data/restauracao.js")).desfazerUltimaRestauracao(); return "desfez"; } catch (e) { return e.codigo; } });
+/** Troca o id da 1ª cliente (e as referências a ela) — limite de ids (M2). Roda no Node, sobre as tabelas do backup. */
+const trocarIdCliente = (T, novo) => { const c = T.clientes[0]; for (const a of T.atendimentos) if (a.cliente_id === c.id) a.cliente_id = novo; c.id = novo; };
 const semAuditoria = ({ auditoria, ...t }) => t;
 const semVolateis = ({ auditoria, usuarios, ...t }) => t; // o login muda ultimo_acesso: usuários são conferidos pelos nomes
 
@@ -51,7 +56,7 @@ T("backup válido de outro aparelho, pela TELA: prova de acesso, sessão encerra
   await page.goto(srv.url + "#/dados"); await page.waitForSelector("#arq");
   await page.setInputFiles("#arq", { name: "outro.salaobackup", mimeType: "application/octet-stream", buffer: Buffer.from(X) });
   await page.click("#analisar"); await page.waitForSelector('[data-restauracao="previa"]');
-  assert.ok(await page.$("#copia-emergencia"), "cópia de emergência oferecida (com login)");
+  assert.ok(await existe(page, "#copia-emergencia"), "cópia de emergência oferecida (com login)");
   await page.fill('input[name="prova_usuario"]', DONA.usuario); await page.fill('input[name="prova_senha"]', DONA.senha); await page.fill('#f-imp input[name="c"]', "SUBSTITUIR");
   await Promise.all([page.waitForEvent("load", { timeout: 20000 }), page.click('#f-imp button[type="submit"]')]);
   await page.waitForSelector('form#f input[name="senha"]'); // sessão encerrada: volta ao login
@@ -78,6 +83,10 @@ T("backup INVÁLIDO → recusado → estado anterior INTACTO (dados, usuários, 
     ["tipo inválido", (T) => (T.atendimentos[0].valor_centavos = "50"), "CAMPO_INVALIDO"],
     ["relacionamento inválido", (T) => (T.pagamentos[0].atendimento_id = 999), "RELACAO"],
     ["ids repetidos", (T) => T.clientes.push({ ...T.clientes[0] }), "CHAVE_REPETIDA"],
+    ["pagamento sem forma de pagamento (M1)", (T) => delete T.pagamentos[0].forma_pagamento, "CAMPO_INVALIDO"],
+    ["id acima de 2^31 − 1 (M2: o aparelho deixaria de criar registros)", (T) => trocarIdCliente(T, Number.MAX_SAFE_INTEGER), "CAMPO_INVALIDO"],
+    ["data que não existe no calendário (M3)", (T) => (T.atendimentos[0].data = "2026-02-31"), "CAMPO_INVALIDO"],
+    ["data 0000-00-00 (M3)", (T) => (T.despesas[0].data = "0000-00-00"), "CAMPO_INVALIDO"],
   ];
   for (const [nome, muda, codigo] of casos) {
     const txt = await variante(muda), a = await analisar(page, txt);
@@ -139,12 +148,18 @@ T("falha simulada ao gravar a CÓPIA antes da restauração: a restauração nem
   await ctx.close();
 });
 
-T("D1 — aparelho COM administrador: sem login não há restauração (função, tela de login e rota #/restaurar)", async () => {
-  const { ctx, page } = await aparelho(); await sair(page); await page.waitForSelector('form#f input[name="senha"]');
-  assert.equal(await page.$('a[href="#/restaurar"]'), null, "login sem link de restauração");
-  const antes = await impressao(page);
-  assert.equal((await restaurar(page, X, DONA)).codigo, "NAO_AUTORIZADO"); assert.deepEqual(await impressao(page), antes);
-  await page.goto(srv.url + "#/restaurar"); await page.waitForSelector('[data-restaurar="exige-login"]');
+T("A2/D1 — aparelho com administrador que consegue entrar: sem login, ou conectada sem ser administradora, não há restauração (função, login e #/restaurar)", async () => {
+  const { ctx, page } = await aparelho(), semUsuarios = await variante((T) => delete T.usuarios), RECEP = { usuario: "recep.local", senha: "senha-recep-local-1" };
+  await naPagina(page, async (r) => (await import("./js/data/usuarios.js")).criar({ nome: "Recepção Local", perfil: "recepcao", ...r }), RECEP);
+  await sair(page); await page.waitForSelector('form#f input[name="senha"]');
+  assert.equal(await existe(page, 'a[href="#/restaurar"]'), false, "login sem link de restauração"); assert.equal(await existe(page, '[data-login="sem-admin"]'), false);
+  let antes = await impressao(page);
+  for (const txt of [X, semUsuarios]) assert.equal((await restaurar(page, txt, DONA)).codigo, "NAO_AUTORIZADO");
+  assert.deepEqual(await impressao(page), antes);
+  await page.goto(srv.url + "#/restaurar"); await page.waitForSelector('[data-restaurar="exige-login"]'); assert.equal(await existe(page, "#arq"), false, "sem campo de arquivo");
+  assert.equal(await entrar(page, RECEP), true); antes = await impressao(page); // conectada, mas não administradora
+  for (const txt of [X, semUsuarios]) assert.equal((await restaurar(page, txt, DONA)).codigo, "NAO_AUTORIZADO", "recepção conectada");
+  assert.deepEqual(await impressao(page), antes);
   await ctx.close();
 });
 
@@ -153,28 +168,42 @@ T("D1 — PRIMEIRO ACESSO (sem usuários): restauração sem login permitida pel
   await page.goto(srv.url + "#/restaurar"); await page.waitForSelector("#arq");
   await page.setInputFiles("#arq", { name: "outro.salaobackup", mimeType: "application/octet-stream", buffer: Buffer.from(X) });
   await page.click("#verif"); await page.waitForSelector('[data-restauracao="previa"]');
-  assert.equal(await page.$("#copia-emergencia"), null, "sem login: nenhum download de dados");
+  assert.equal(await existe(page, "#copia-emergencia"), false, "sem login: nenhum download de dados");
   await page.fill('input[name="prova_usuario"]', DONA.usuario); await page.fill('input[name="prova_senha"]', DONA.senha); await page.fill('#f-imp input[name="c"]', "SUBSTITUIR");
   await Promise.all([page.waitForEvent("load", { timeout: 20000 }), page.click('#f-imp button[type="submit"]')]);
   await entrarUI(page, DONA.usuario, DONA.senha); assert.equal((await tabelas(page)).clientes.length, JSON.parse(X).tabelas.clientes.length);
   await ctx.close();
 });
 
-T("D1 — aparelho com usuários mas NENHUM administrador que consiga entrar: login oferece a restauração, que funciona sem login", async () => {
-  const { ctx, page } = await aparelho();
-  await naPagina(page, async () => { const D = await import("./js/data/database.js"); await D.transacao(["usuarios"], "readwrite", async (t) => { for (const u of await t.usuarios.todos()) { u.ativo = 0; await t.usuarios.salvar(u); } }); });
-  await sair(page); await page.waitForSelector('[data-login="sem-admin"]');
-  const r = await restaurar(page, X, DONA); assert.equal(r.ok, true, r.mensagem);
-  assert.equal(await entrar(page, DONA), true);
+T("A2 — aparelho com usuários mas NENHUM administrador que consiga entrar: sem login, a restauração é RECUSADA (antes era permitida) — função, login e #/restaurar", async () => {
+  const { ctx, page } = await aparelho(), semUsuarios = await variante((T) => delete T.usuarios);
+  for (const [caso, trava] of [["todos os usuários inativos", (u) => { u.ativo = 0; }], ["administrador ativo com senha ilegível", (u) => { u.ativo = 1; u.senha_hash = "ilegivel"; }]]) {
+    await page.goto(srv.url + "#/");
+    await naPagina(page, async (src) => { const muda = (0, eval)(src), D = await import("./js/data/database.js"); await D.transacao(["usuarios"], "readwrite", async (t) => { for (const u of await t.usuarios.todos()) { muda(u); await t.usuarios.salvar(u); } }); }, trava.toString());
+    await sair(page); await page.waitForSelector('form#f input[name="senha"]');
+    assert.equal(await existe(page, '[data-login="sem-admin"]'), false, `${caso}: o aviso que levava à restauração sem login não existe mais`); assert.equal(await existe(page, 'a[href="#/restaurar"]'), false, caso);
+    const antes = await impressao(page);
+    for (const txt of [X, semUsuarios]) assert.equal((await restaurar(page, txt, DONA)).codigo, "NAO_AUTORIZADO", caso);
+    assert.deepEqual(await impressao(page), antes, `${caso}: nada alterado`);
+    await page.goto(srv.url + "#/restaurar"); await page.waitForSelector('[data-restaurar="exige-login"]'); assert.equal(await existe(page, "#arq"), false, `${caso}: sem campo de arquivo`);
+  }
   await ctx.close();
 });
 
-T("backup SEM usuários em aparelho sem administrador utilizável: recusado (não devolveria o acesso)", async () => {
-  const { ctx, page } = await aparelho();
-  await naPagina(page, async () => { const D = await import("./js/data/database.js"); await D.transacao(["usuarios"], "readwrite", async (t) => { for (const u of await t.usuarios.todos()) { u.ativo = 0; await t.usuarios.salvar(u); } }); });
-  await sair(page); const antes = await impressao(page);
-  assert.equal((await restaurar(page, await variante((T) => delete T.usuarios))).codigo, "SEM_ACESSO_RESULTANTE"); assert.deepEqual(await impressao(page), antes);
-  await ctx.close();
+T("backup SEM usuários: no primeiro acesso é RECUSADO (deixaria os dados sem administrador); com administrador conectado, mantém os usuários do aparelho", async () => {
+  const semUsuarios = await variante((T) => delete T.usuarios);
+  { const { ctx, page } = await aparelho({ semDados: true }); const antes = await impressao(page); assert.deepEqual(antes.usuarios, []);
+    assert.equal((await restaurar(page, semUsuarios)).codigo, "SEM_ACESSO_RESULTANTE"); assert.deepEqual(await impressao(page), antes, "nada alterado");
+    await page.goto(srv.url + "#/restaurar"); await page.waitForSelector("#arq");
+    await page.setInputFiles("#arq", { name: "sem-usuarios.salaobackup", mimeType: "application/octet-stream", buffer: Buffer.from(semUsuarios) });
+    await page.click("#verif"); await page.waitForSelector('[data-restauracao="bloqueada"]'); assert.equal(await existe(page, "#f-imp"), false, "a tela não oferece restaurar");
+    assert.match(await page.textContent('[data-restauracao="bloqueada"]'), /não traz usuários/);
+    await ctx.close(); }
+  { const { ctx, page } = await aparelho(); // administrador conectado
+    const r = await restaurar(page, semUsuarios); assert.equal(r.ok, true, r.mensagem); assert.equal(r.usuariosSubstituidos, false);
+    assert.deepEqual((await impressao(page)).usuarios, ["admin"]); assert.equal(await entrar(page, ADMIN), true);
+    assert.equal((await tabelas(page)).clientes.length, JSON.parse(X).tabelas.clientes.length);
+    await ctx.close(); }
 });
 
 T("DESFAZER sem login logo após a restauração devolve o estado anterior; depois que alguém entra, só com login", async () => {
@@ -196,6 +225,73 @@ T("DESFAZER sem login logo após a restauração devolve o estado anterior; depo
   await Promise.all([page.waitForEvent("load", { timeout: 20000 }), page.click('#f-desfazer button[type="submit"]')]);
   const t2 = await tabelas(page); assert.deepEqual(semVolateis(t2), semVolateis(t0)); assert.deepEqual(t2.usuarios.map((u) => u.usuario), ["admin"]);
   await entrarUI(page, ADMIN.usuario, ADMIN.senha);
+  await ctx.close();
+});
+
+T("A1 — desfazer a restauração feita no PRIMEIRO ACESSO é recusado, sem e com login: o aparelho nunca volta a ficar sem administrador e ninguém cria outro", async () => {
+  const { ctx, page } = await aparelho({ semDados: true });
+  assert.equal((await restaurar(page, X, DONA)).ok, true, "restauração sem login no primeiro acesso");
+  await page.reload(); await page.waitForSelector('form#f input[name="senha"]');
+  assert.equal(await existe(page, 'a[href="#/desfazer"]'), false, "o login não oferece um desfazer que seria recusado");
+  let antes = await impressao(page);
+  assert.equal(await desfazer(page), "DESFAZER_SEM_ADMIN", "sem login"); assert.deepEqual(await impressao(page), antes, "nada alterado");
+  await page.goto(srv.url + "#/desfazer"); await page.waitForSelector('[data-desfazer="sem-admin"]'); assert.equal(await existe(page, "#f-desfazer"), false, "sem formulário");
+  await entrarUI(page, DONA.usuario, DONA.senha); antes = await impressao(page); // administradora conectada: também recusado
+  assert.equal(await desfazer(page), "DESFAZER_SEM_ADMIN", "com login"); assert.deepEqual(await impressao(page), antes, "nada alterado");
+  await page.goto(srv.url + "#/desfazer"); await page.waitForSelector('[data-desfazer="sem-admin"]'); assert.equal(await existe(page, "#f-desfazer"), false);
+  // a cadeia da revisão final: sem usuários, qualquer pessoa criaria o "primeiro" administrador e baixaria as cópias. Impossível:
+  const intrusa = { nome: "Intrusa", usuario: "intrusa", senha: "senha-da-intrusa-1", salao: "Outro" };
+  assert.equal(await naPagina(page, async (d) => { const U = await import("./js/data/usuarios.js"); U.sair(); try { await U.configurarPrimeiro(d); return "criou"; } catch (e) { return e.message; } }, intrusa), "O aplicativo já foi configurado.");
+  await page.goto(srv.url + "#/"); await page.reload(); await page.waitForSelector('form#f input[name="senha"]');
+  assert.equal(await existe(page, 'input[name="salao"]'), false, "a tela de primeiro acesso não aparece");
+  assert.deepEqual((await impressao(page)).usuarios, ["dona", "recep"]); assert.equal(await entrar(page, intrusa), false);
+  await ctx.close();
+});
+
+T("A1 — cópia sem administrador que consiga entrar (inativo, senha ilegível, sem usuários): desfazer recusado sem e com login, nada alterado", async () => {
+  const { ctx, page } = await aparelho();
+  assert.equal((await restaurar(page, X, DONA)).ok, true); await page.reload(); await page.waitForSelector('form#f input[name="senha"]');
+  const adulterarCopia = (caso) => naPagina(page, async (caso) => { // checksum refeito: a cópia passa na conferência de integridade
+    const D = await import("./js/data/database.js"), B = await import("./js/data/backup.js"), R = await import("./js/data/restauracao.js");
+    const c = await R.ultimaCopiaPreRestauracao(), doc = JSON.parse(await B.snapshotTexto(c.id));
+    if (caso === "sem usuários") doc.tabelas.usuarios = []; else for (const u of doc.tabelas.usuarios) if (caso === "inativo") u.ativo = 0; else { u.ativo = 1; u.senha_hash = "ilegivel"; }
+    doc.sha256 = await B.sha256(B.canonico(doc.tabelas)); const texto = JSON.stringify(doc);
+    await D.transacao(["backups"], "readwrite", async (t) => { const b = await t.backups.get(c.id); b.texto = texto; await t.backups.salvar(b); });
+  }, caso);
+  for (const caso of ["inativo", "senha ilegível", "sem usuários"]) {
+    await adulterarCopia(caso); const antes = await impressao(page);
+    assert.equal(await desfazer(page), "DESFAZER_SEM_ADMIN", `${caso}, sem login`); assert.deepEqual(await impressao(page), antes, `${caso}: nada alterado`);
+    await page.goto(srv.url + "#/desfazer"); await page.waitForSelector('[data-desfazer="sem-admin"]'); assert.equal(await existe(page, "#f-desfazer"), false, caso);
+  }
+  await entrarUI(page, DONA.usuario, DONA.senha); const antes = await impressao(page);
+  assert.equal(await desfazer(page), "DESFAZER_SEM_ADMIN", "com login"); assert.deepEqual(await impressao(page), antes, "nada alterado");
+  await ctx.close();
+});
+
+T("cópia de antes da restauração DANIFICADA: desfazer recusado sem e com login, a tela mostra o motivo sem formulário, nada alterado", async () => {
+  const { ctx, page } = await aparelho();
+  assert.equal((await restaurar(page, X, DONA)).ok, true); await page.reload(); await page.waitForSelector('form#f input[name="senha"]');
+  await naPagina(page, async () => { // conteúdo alterado SEM refazer o checksum
+    const D = await import("./js/data/database.js"), R = await import("./js/data/restauracao.js"), c = await R.ultimaCopiaPreRestauracao();
+    await D.transacao(["backups"], "readwrite", async (t) => { const b = await t.backups.get(c.id), d = JSON.parse(b.texto); d.tabelas.clientes[0].nome = "Adulterada"; b.texto = JSON.stringify(d); await t.backups.salvar(b); });
+  });
+  const antes = await impressao(page);
+  assert.equal(await desfazer(page), "COPIA_DANIFICADA", "sem login"); assert.deepEqual(await impressao(page), antes, "nada alterado");
+  await page.goto(srv.url + "#/desfazer"); await page.waitForSelector('[data-desfazer="erro"]'); assert.equal(await existe(page, "#f-desfazer"), false, "sem formulário");
+  assert.match(await page.textContent('[data-desfazer="erro"]'), /danificada/);
+  await entrarUI(page, DONA.usuario, DONA.senha); const comLogin = await impressao(page);
+  assert.equal(await desfazer(page), "COPIA_DANIFICADA", "com login"); assert.deepEqual(await impressao(page), comLogin, "nada alterado");
+  await ctx.close();
+});
+
+T("M2 — o maior id aceito (2^31 − 1) restaura e o aparelho continua criando registros; um id acima dele é recusado ANTES de gravar", async () => {
+  const { ctx, page } = await aparelho(); const antes = await impressao(page), comId = (novo) => variante((T) => trocarIdCliente(T, novo));
+  const acima = await restaurar(page, await comId(2147483648), DONA);
+  assert.equal(acima.codigo, "BACKUP_INVALIDO"); assert.ok(acima.codigos.includes("CAMPO_INVALIDO"), String(acima.codigos)); assert.deepEqual(await impressao(page), antes, "nada gravado, nem a cópia");
+  assert.equal((await restaurar(page, await comId(2147483647), DONA)).ok, true);
+  assert.equal(await entrar(page, DONA), true);
+  const ids = await naPagina(page, async () => { const Cli = await import("./js/data/clientes.js"); return [await Cli.salvar({ nome: "Nova Um", telefone: "(11) 91111-1111" }), await Cli.salvar({ nome: "Nova Dois", telefone: "(11) 92222-2222" })]; });
+  assert.deepEqual(ids, [2147483648, 2147483649], "o gerador de chaves do IndexedDB continua funcionando");
   await ctx.close();
 });
 

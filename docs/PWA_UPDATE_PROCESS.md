@@ -51,6 +51,8 @@ Sempre faça o merge de uma vez só (merge commit ou squash). Nunca envie arquiv
   maior que o atual. Versões incompatíveis são bloqueadas na página **e** no service worker, porque o IndexedDB recusaria
   abrir e o app não abriria. Os dados nunca sofrem *downgrade*.
 - Se um pino incompatível existir por qualquer motivo, o service worker o ignora e desafixa sozinho.
+- **Atenção à segurança:** enquanto uma versão anterior estiver fixada, valem as regras dela. A 11.2, por exemplo,
+  restaurava backups sem login mesmo com usuários no aparelho. Volte para a mais recente assim que possível.
 
 **Para quem publica:** para reverter uma publicação ruim para todos, **não** reverta a `main` para a versão anterior
 (o mesmo número de versão com outro conteúdo seria recusado). Publique uma versão **nova** (ex.: 11.2.1) com o código
@@ -65,7 +67,8 @@ Do mais simples ao mais drástico. **Nenhum destes passos apaga dados**, exceto 
 2. **Tela "O aplicativo precisa voltar para a versão atual":** toque em **Abrir a versão atual**.
 2a. **Uma restauração deu errado ou deixou você sem acesso:** use **Desfazer a última restauração** (Dados e backup, ou o
    link na tela de login). Sem login, ele só funciona enquanto ninguém entrou depois da restauração; não mostra nem baixa
-   dados e também pode ser desfeito.
+   dados e também pode ser desfeito. Ele nunca volta para um estado sem administrador que consiga entrar: a restauração
+   feita no primeiro acesso não pode ser desfeita (entre com o administrador do backup e restaure outro).
 3. **Endereço de emergência:** com internet, abra o endereço do app terminando em `?recuperar=1`
    (ex.: `https://USUARIO.github.io/salaoproject/?recuperar=1`). O service worker desafixa qualquer versão e abre a atual.
    Funciona mesmo que a versão fixada não consiga abrir.
@@ -73,12 +76,17 @@ Do mais simples ao mais drástico. **Nenhum destes passos apaga dados**, exceto 
    andamento / CDN", espere alguns minutos e use Manutenção › Verificar atualização. Se persistir, a publicação está
    quebrada: publique uma correção com versão nova.
 5. **Último recurso (com backup):** baixe um `.salaobackup` (Manutenção › Exportar backup), limpe os dados do site no
-   Chrome, abra o app de novo e restaure em **Restaurar backup** (no primeiro acesso a restauração funciona sem login).
+   Chrome, abra o app de novo e restaure em **Restaurar backup** (no primeiro acesso a restauração funciona sem login, com
+   um backup que contenha usuários).
 
 ## 4b. Regras da restauração (11.3)
 
-- **Quem pode restaurar:** com administradores no aparelho, só um administrador autenticado (Dados e backup ou Manutenção).
-  Sem login, só em aparelho sem nenhum administrador que consiga entrar (primeiro acesso, dados perdidos).
+- **Quem pode restaurar:** com qualquer usuário no aparelho, só um administrador autenticado (Dados e backup ou
+  Manutenção), mesmo que nenhum administrador consiga entrar. Sem login, só em aparelho sem nenhum usuário (primeiro
+  acesso, dados perdidos) e com um backup que contenha usuários.
+- **Nunca sem administrador:** nem restaurar nem desfazer deixam o aparelho sem um administrador que consiga entrar.
+- **Aparelho com usuários e sem administrador que consiga entrar** (ex.: senha esquecida): não há recuperação sem login.
+  É uma decisão de produto pendente (veja `docs/CHANGELOG_11_3.md`).
 - **Prova de acesso:** se o backup traz usuários, informe o usuário e a senha de um administrador **do backup**; a senha é
   conferida no arquivo antes de qualquer alteração. Depois da restauração, entre com esse usuário.
 - **Nada muda se algo falhar:** o arquivo é validado por completo antes; a gravação é uma única transação conferida antes
@@ -87,6 +95,7 @@ Do mais simples ao mais drástico. **Nenhum destes passos apaga dados**, exceto 
 - **Estado inconsistente:** exportar continua possível, mas o arquivo vem marcado "apenas para recuperação/análise"
   (nome terminado em `-INCONSISTENTE`) e não é aceito como backup normal.
 - **Backups 9.x:** compatibilidade não verificada; um arquivo só é restaurado se passar em todas as validações.
+- **Regras dos dados:** datas que existem no calendário, ids de 1 a 2.147.483.647 e forma de pagamento em todo pagamento.
 
 ## 5. Identidade do aplicativo
 

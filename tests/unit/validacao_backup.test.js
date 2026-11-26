@@ -88,6 +88,31 @@ test("valores numéricos: centavos não inteiros ou negativos, ids não positivo
   for (const [t, c, v] of [["atendimentos", "valor_centavos", 50.5], ["atendimentos", "valor_centavos", -1], ["pagamentos", "valor_centavos", 0], ["despesas", "valor_centavos", 0], ["clientes", "id", 0], ["clientes", "id", "1"], ["servicos", "ativo", true]])
     assert.ok(tem(await com((T) => (T[t][0][c] = v)), "CAMPO_INVALIDO", { tabela: t, campo: c }), `${t}.${c}=${v}`);
 });
+test("M1: pagamento sem forma de pagamento, vazia ou nula é recusado (o app grava a forma em todo pagamento desde a 10.1)", async () => {
+  for (const [como, muda] of [["ausente", (p) => delete p.forma_pagamento], ["vazia", (p) => (p.forma_pagamento = "")], ["só espaços", (p) => (p.forma_pagamento = "  ")], ["nula", (p) => (p.forma_pagamento = null)], ["número", (p) => (p.forma_pagamento = 1)]])
+    assert.ok(tem(await com((T) => muda(T.pagamentos[0])), "CAMPO_INVALIDO", { tabela: "pagamentos", campo: "forma_pagamento", n: 1 }), como);
+  assert.ok(E.ESQUEMA.pagamentos.obrigatorios.forma_pagamento && !("forma_pagamento" in E.ESQUEMA.pagamentos.opcionais), "obrigatório, não mais opcional");
+  // tudo o que os três pontos que gravam pagamentos produzem (formulário, agendamento com valor recebido, "receber saldo")
+  for (const forma of ["Pix", "Dinheiro", "Débito", "Crédito", "Transferência", "Outro"]) assert.equal((await com((T) => (T.pagamentos[0].forma_pagamento = forma))).ok, true, forma);
+});
+test("M2: ids acima de 2^31 − 1 são recusados ANTES de gravar (o gerador de chaves do IndexedDB pararia); o limite é aceito", async () => {
+  assert.equal(E.ID_MAXIMO, 2147483647);
+  const campos = [["clientes", "id"], ["servicos", "id"], ["atendimentos", "id"], ["atendimentos", "cliente_id"], ["atendimentos", "servico_id"], ["pagamentos", "id"], ["pagamentos", "atendimento_id"], ["despesas", "id"], ["auditoria", "id"], ["usuarios", "id"]];
+  for (const v of [2147483648, Number.MAX_SAFE_INTEGER]) for (const [t, c] of campos)
+    assert.ok(tem(await com((T) => (T[t][0][c] = v)), t === "usuarios" ? "USUARIO_INCOMPATIVEL" : "CAMPO_INVALIDO", { tabela: t, campo: c }), `${t}.${c}=${v}`);
+  const r = await com((T) => { const M = E.ID_MAXIMO; T.clientes[0].id = M; T.atendimentos[0].cliente_id = M; T.servicos[0].id = M; T.atendimentos[0].servico_id = M; T.atendimentos[0].id = M; T.pagamentos[0].atendimento_id = M; for (const t of ["pagamentos", "despesas", "auditoria", "usuarios"]) T[t][0].id = M; });
+  assert.equal(r.ok, true, r.erros.join(" | "));
+});
+test("M3: datas que não existem no calendário são recusadas; datas reais (inclusive 29/02 de ano bissexto) são aceitas", async () => {
+  const campos = [["atendimentos", "data"], ["pagamentos", "data"], ["despesas", "data"], ["clientes", "data_nascimento"]];
+  const recusa = async (v, motivo) => { for (const [t, c] of campos) assert.ok(tem(await com((T) => (T[t][0][c] = v)), "CAMPO_INVALIDO", { tabela: t, campo: c }), `${motivo}: ${t}.${c}=${JSON.stringify(v)}`); };
+  for (const v of ["2026-02-31", "0000-00-00", "2023-02-29", "1900-02-29", "2100-02-29", "2026-04-31", "2026-06-31", "2026-09-31", "2026-11-31", "2026-13-01", "2026-00-10", "2026-01-00", "2026-01-32"]) await recusa(v, "data impossível");
+  for (const v of ["2026-2-3", "26-02-03", "2026/02/03", "03/02/2026", "2026-02-03T00:00", " 2026-02-03", "2026-02-03 ", "2026-02-03\n", "", "２０２６-02-03", 20260203, null]) if (v !== null) await recusa(v, "formato inválido");
+  for (const [t, c] of campos.slice(0, 3)) assert.ok(tem(await com((T) => (T[t][0][c] = null)), "CAMPO_INVALIDO", { tabela: t, campo: c }), `${t}.${c} nula`);
+  for (const v of ["2026-11-26", "2024-02-29", "2000-02-29", "2026-12-31", "2026-01-01", "1990-05-17", "2026-04-30", "2026-02-28"])
+    for (const [t, c] of campos) assert.equal((await com((T) => (T[t][0][c] = v))).ok, true, `${t}.${c}=${v}`);
+  assert.equal((await com((T) => (T.clientes[0].data_nascimento = null))).ok, true, "a data de nascimento continua opcional (nula)");
+});
 test("identificadores repetidos (registros e configurações) são recusados ANTES de gravar", async () => {
   assert.ok(tem(await com((T) => T.clientes.push({ ...T.clientes[0], nome: "Outra" })), "CHAVE_REPETIDA", { tabela: "clientes", n: 2, outro: 1 }));
   const r = await com((T) => T.configuracoes_sistema.push({ chave: "tema", valor: "escuro" })); assert.ok(tem(r, "CHAVE_REPETIDA", { tabela: "configuracoes_sistema" }));

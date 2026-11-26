@@ -4,6 +4,9 @@
 // • Campos OPCIONAIS, se presentes, precisam ter o tipo certo. Campos extras são mantidos como estão.
 // • Nada é convertido ou "consertado": um registro fora das regras faz a validação falhar, com o motivo.
 // • As listas fechadas vêm dos próprios módulos (fonte única).
+// • pagamentos.forma_pagamento é obrigatório: os três pontos que gravam pagamentos (formulário de lançamento, agendamento
+//   com valor já recebido e "receber saldo") sempre gravam uma forma não vazia — financeiro.js, agenda.js e o formulário
+//   são idênticos da 10.1 à 11.2. Sem ela, o painel e o financeiro mostravam "undefined".
 import { STATUS, FORMAS } from "./agenda.js";
 import { CATEGORIAS_DESP, FORMAS_DESP } from "./financeiro.js";
 import { analisarHash } from "./senha.js";
@@ -15,11 +18,22 @@ export const PERFIS = ["admin", "recepcao", "funcionario"];
 /** Regras de ACESSO (só valem para restaurar; não tornam um conjunto de dados "inconsistente"). */
 export const CODIGOS_ACESSO = ["USUARIOS_VAZIO", "SEM_ADMIN_ATIVO"];
 
-const id = (v) => Number.isSafeInteger(v) && v > 0;
+/** Maior id aceito (2^31 − 1). O gerador de chaves do IndexedDB continua do maior id gravado e para perto de 2^53: um id
+ *  enorme num backup impediria o aparelho de criar registros novos ("Maximum key generator value reached"). Os ids que o
+ *  app gera começam em 1 e crescem de 1 em 1, muito abaixo deste limite. */
+export const ID_MAXIMO = 2147483647;
+const id = (v) => Number.isSafeInteger(v) && v > 0 && v <= ID_MAXIMO;
 const texto = (v) => typeof v === "string";
 const preenchido = (v) => typeof v === "string" && v.trim().length > 0;
 const textoOuNulo = (v) => v === null || typeof v === "string";
-const data = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const DIAS_NO_MES = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const bissexto = (a) => (a % 4 === 0 && a % 100 !== 0) || a % 400 === 0;
+/** Data que existe no calendário, em AAAA-MM-DD (o que os campos de data das telas gravam). "2026-02-31" e "0000-00-00" não. */
+const data = (v) => {
+  const m = typeof v === "string" && /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); if (!m) return false;
+  const mes = +m[2], dia = +m[3];
+  return mes >= 1 && mes <= 12 && dia >= 1 && dia <= (mes === 2 && bissexto(+m[1]) ? 29 : DIAS_NO_MES[mes - 1]);
+};
 const dataOuNulo = (v) => v === null || data(v);
 const hora = (v) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 const centavos = (v) => Number.isSafeInteger(v) && v >= 0;
@@ -40,8 +54,8 @@ export const ESQUEMA = {
   atendimentos: { chave: "id", obrigatorios: { id, cliente_id: id, data, horario_agendado: hora, servico: preenchido, valor_centavos: centavos,
     valor_recebido_centavos: centavos, forma_pagamento: em(FORMAS), status_atendimento: em(STATUS), status_pagamento: em(STATUS_PAGAMENTO) },
     opcionais: { duracao_min: inteiroPositivo, servico_id: idOuNulo, observacoes: texto, criado_em: texto, atualizado_em: texto } },
-  pagamentos: { chave: "id", obrigatorios: { id, atendimento_id: id, tipo: em(["recebimento", "estorno"]), valor_centavos: centavosPositivos, data },
-    opcionais: { forma_pagamento: texto, observacao: texto, criado_em: texto } },
+  pagamentos: { chave: "id", obrigatorios: { id, atendimento_id: id, tipo: em(["recebimento", "estorno"]), valor_centavos: centavosPositivos, forma_pagamento: preenchido, data },
+    opcionais: { observacao: texto, criado_em: texto } },
   despesas: { chave: "id", obrigatorios: { id, descricao: preenchido, categoria: em(CATEGORIAS_DESP), data, valor_centavos: centavosPositivos, forma_pagamento: em(FORMAS_DESP) },
     opcionais: { observacoes: texto, criado_em: texto } },
   auditoria: { chave: "id", obrigatorios: { id, quando: texto, acao: texto, resumo: texto },

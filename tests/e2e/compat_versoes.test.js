@@ -25,6 +25,8 @@ async function backupDaVersao(ref, versao) {
       await Fin.registrarPagamento(a2, "recebimento", 4500, "Dinheiro", "2026-11-21"); await Fin.registrarPagamento(a2, "estorno", 1000, "Dinheiro", "2026-11-22");
       await Agd.mudarStatus(a2, "Confirmado");
       const a3 = await Agd.salvar({ cliente_id: c2, data: "2026-11-25", horario_agendado: "09:00", servico: "Escova", valor_centavos: 3000, forma_pagamento: "A combinar" }); await Agd.mudarStatus(a3, "Cancelado");
+      // os outros dois pontos que gravam pagamentos: valor recebido ao agendar ("A combinar" vira "Outro") e "receber saldo"
+      const a4 = await Agd.salvar({ cliente_id: c2, data: "2026-11-26", horario_agendado: "16:00", servico: "Corte", valor_centavos: 6000, forma_pagamento: "A combinar" }, 2000); await Fin.receberSaldo(a4);
       await Fin.salvarDespesa({ descricao: "Aluguel", categoria: "Aluguel", data: "2026-11-05", valor_centavos: 150000, forma_pagamento: "Boleto" });
       await U.criar({ nome: "Recepção", usuario: "recep", perfil: "recepcao", senha: "senha-recep-789" });
       return B.exportarTexto();
@@ -35,6 +37,8 @@ async function backupDaVersao(ref, versao) {
 for (const [versao, ref] of VERSOES) test(`backup gerado pela ${versao} restaura na ${VERSAO}: validação, prova de acesso, login e dados idênticos`, { skip: semNavegador || (!refExiste(ref) && `referência ${ref} (${versao}) ausente neste clone`) }, async () => {
   const texto = await backupDaVersao(ref, versao), x = JSON.parse(texto).tabelas;
   assert.equal(JSON.parse(texto).versao_app, versao);
+  assert.equal(x.pagamentos.length, 5, "pagamentos dos três pontos que gravam pagamentos");
+  assert.ok(x.pagamentos.every((p) => typeof p.forma_pagamento === "string" && p.forma_pagamento.trim()), `a ${versao} grava a forma em todo pagamento (evidência do M1): ${x.pagamentos.map((p) => p.forma_pagamento)}`);
   const ctx = await nav.newContext(), page = await ctx.newPage();
   try {
     await abrir(page, srvAtual.url); await configurarAdmin(page, { usuario: "dono.novo", senha: "outra-senha-000" }); // aparelho atual, com outro administrador
