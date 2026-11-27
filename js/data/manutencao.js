@@ -48,7 +48,7 @@ export async function backupCompleto() {
   const todos = [...arq.map((a) => ({ nome: "app/" + a.nome, dados: a.dados })), { nome: "data/backup.salaobackup", dados: texto },
     { nome: "LEIA-ME.txt", dados: `Salão.gestão ${INFO.versao} — BACKUP COMPLETO (${agora()})\n\napp/  = arquivos do programa (backup da aplicação)\ndata/ = backup dos dados (.salaobackup; senhas só como hash, nunca em texto puro)\n\nPara restaurar os dados: Configurações → Manutenção → Importar backup, escolhendo data/backup.salaobackup.\nPara republicar o programa: hospede o conteúdo de app/ em um servidor HTTPS.\n${consistente ? "" : `\nATENÇÃO: ${AVISO_INCONSISTENTE}\n`}` }];
   const blob = criarZip(todos); Bkp.baixarBlob(blob, `salao-gestao-backup-completo-v${INFO.versao}.zip`); if (consistente) localStorage.setItem("salao_ultimo_download", agora()); // estado inconsistente não conta como backup saudável (D3)
-  await transacao(["auditoria"], "readwrite", (t) => auditar(t, "exportacao", "sistema", null, "Backup completo (aplicação + dados) exportado")); return { arquivos: todos.length, contagens: rel.contagens, consistente };
+  await transacao(["auditoria"], "readwrite", (t) => auditar(t, "exportacao", "sistema", null, "Backup completo (aplicação + dados) exportado")); return { arquivos: todos.length, contagens: rel.contagens, consistente, bytes: texto.length }; // 11.3.1: bytes = tamanho do .salaobackup (aviso de limite)
 }
 
 // ---------- atualização segura ----------

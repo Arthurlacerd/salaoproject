@@ -1,9 +1,22 @@
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 export const reais = (c) => "R$ " + ((c || 0) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const moeda = (c) => `<span class="money">${reais(c)}</span>`;
-export function parseMoeda(t) { // "1.234,56" | "10" | "0,5" -> centavos (NaN se inválido)
+export function parseMoeda(t) { // "1.234,56" | "1.500" | "1500" | "10" | "0,5" | "12.50" -> centavos (NaN se inválido)
   t = String(t ?? "").trim().replace(/^R\$\s*/, ""); if (!/^\d{1,3}(\.\d{3})*(,\d{1,2})?$|^\d+(,\d{1,2})?$|^\d+\.\d{1,2}$/.test(t)) return NaN;
-  const n = t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t; return Math.round(parseFloat(n) * 100);
+  // 11.3.1: ponto seguido de grupos de 3 dígitos é separador de milhar ("1.500", "1.234.567"), com ou sem vírgula.
+  // Sem ambiguidade: o ponto decimal só é aceito com 1 ou 2 casas ("12.50", "1.5").
+  const milhar = t.includes(",") || /^[1-9]\d{0,2}(\.\d{3})+$/.test(t);
+  const n = milhar ? t.replace(/\./g, "").replace(",", ".") : t; return Math.round(parseFloat(n) * 100);
+}
+/** "Gerado em" de um backup, para exibir (11.3.1). O app (origem "pwa", 10.1–11.3) grava a hora em UTC sem o "Z"
+ *  (toISOString): ela é mostrada na hora local. Outras origens (ex.: 9.x) aparecem como estão. O arquivo não muda. */
+export function dataHoraBackup(criado, origem) {
+  const s = String(criado ?? "").trim(), m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/), p = (n) => String(n).padStart(2, "0");
+  if (!m) return s || "não informado";
+  if (origem === "pwa" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) {
+    const d = new Date(s + "Z"); if (!Number.isNaN(d.getTime())) return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  return `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`;
 }
 export const dataBR = (d) => (d ? d.split("-").reverse().join("/") : "");
 const DIAS = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];

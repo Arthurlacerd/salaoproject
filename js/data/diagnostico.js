@@ -2,6 +2,8 @@
 // Só lê: não altera dados, caches nem o service worker. O relatório NÃO contém dados pessoais: nada de clientes, telefones,
 // valores, hashes de senha, contagens de registros ou conteúdo de backups — apenas informações técnicas.
 import { INFO, VERSAO_BANCO, VERSAO_SCHEMA, ler, config, agora } from "./database.js";
+import { snapshots } from "./backup.js";
+import { avaliarTamanho, emMB, LIMITE_RESTAURACAO } from "./tamanho_backup.js";
 
 // ---------- instalação: o que o navegador informou (beforeinstallprompt / escolha / appinstalled) ----------
 const CHAVE = "salao_instalacao";
@@ -147,6 +149,17 @@ async function verificarBanco(c) { // sem contagens nem conteúdo: só se o banc
   } catch (e) { return item("indexeddb", "IndexedDB", "erro", "Não foi possível ler o banco local: " + e.message); }
 }
 
+/** 11.3.1: tamanho da última cópia × limite da restauração (30 MB). Só o tamanho: nenhum conteúdo. */
+async function verificarTamanhoBackup() {
+  const T = "Tamanho do backup";
+  try {
+    const ult = (await snapshots())[0];
+    if (!ult) return item("backup", T, "ok", `Ainda não há cópia para medir. A restauração aceita backups de até ${emMB(LIMITE_RESTAURACAO)}.`);
+    const t = avaliarTamanho(ult.tamanho), base = `Última cópia: ${emMB(ult.tamanho)} de ${emMB(LIMITE_RESTAURACAO)} (limite da restauração).`;
+    return item("backup", T, t.nivel === "ok" ? "ok" : t.nivel === "acima" ? "erro" : "aviso", t.mensagem ? `${base} ${t.mensagem}` : base);
+  } catch (e) { return item("backup", T, "aviso", "Não foi possível medir o tamanho do backup: " + e.message); }
+}
+
 async function verificarPersistencia() {
   let persist = null, uso = null, quota = null; try { persist = await navigator.storage?.persisted?.(); const e = await navigator.storage?.estimate?.(); uso = e?.usage; quota = e?.quota; } catch (_) {}
   const mb = (n) => (n == null ? "?" : (n / 1048576).toFixed(1) + " MB"), espaco = uso != null ? ` · uso ${mb(uso)} de ${mb(quota)}` : "";
@@ -169,7 +182,7 @@ function verificarInstalacao(nav) {
 export async function executar() {
   const ctx = {}, nav = navegador(); let c = {}; try { c = await config(); } catch (_) {}
   const itens = [verificarVersao(c), await verificarHttps(), ...(await verificarManifest(ctx)), await verificarServiceWorker(ctx), await verificarCache(), await verificarOffline(),
-    await verificarBanco(c), await verificarPersistencia(), await verificarAtualizacao(ctx, c), await verificarFalha(), verificarInstalacao(nav)];
+    await verificarBanco(c), await verificarTamanhoBackup(), await verificarPersistencia(), await verificarAtualizacao(ctx, c), await verificarFalha(), verificarInstalacao(nav)];
   return { itens, quando: agora(), versao: INFO.versao, banco: VERSAO_BANCO, schema: VERSAO_SCHEMA, nav, modo: modoExibicao(), online: navigator.onLine, identidade: ctx.identidade || "—", origem: location.origin, endereco: location.origin + location.pathname, instalacao: lerInstalacao() };
 }
 

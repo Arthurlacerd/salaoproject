@@ -3,6 +3,8 @@
 // dados preservados, troca do SW, retorno de versão seguro, bloqueio de versão incompatível e rota de emergência.
 // 11.3: a versão em teste não é mais fixa no código; roda para 11.1.0 → atual e 11.2.0 → atual (caminho de produção).
 // 11.3: retorno só para versões >= 11.3.0 (as anteriores restauram backups sem login): voltar para 11.1/11.2 é RECUSADO.
+// 11.3.1: também 11.3.0 → atual (a versão em produção). A tela só oferece "Voltar para esta" a versões permitidas: as
+// bloqueadas (11.1/11.2) aparecem com o motivo e sem botão; o retorno para a 11.3.0 é feito e desfeito PELA TELA.
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -10,8 +12,11 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { semNavegador, versaoAtual, versaoGit, refExiste, servidor, navegador, abrir, configurarAdmin, semear, estadoDados, caches, limpar, gravarSaida, VERSAO, RAIZ } from "./_ambiente.js";
 
-const PARTIDAS = [["11.1.0", process.env.SALAO_REF_ANTERIOR || "b8061f2adda083ff76476e10196960105a4b6813"], ["11.2.0", process.env.SALAO_REF_11_2 || "20218e20e782e241ad96b7912cccf0ef6b831bc8"]];
+const PARTIDAS = [["11.1.0", process.env.SALAO_REF_ANTERIOR || "b8061f2adda083ff76476e10196960105a4b6813"], ["11.2.0", process.env.SALAO_REF_11_2 || "20218e20e782e241ad96b7912cccf0ef6b831bc8"],
+  ["11.3.0", process.env.SALAO_REF_11_3 || "1e7acea9166443238cfe6ddb31108c3661dcd35b"]];
 const CACHE = (v) => "salao-static-v" + v;
+const cmpV = (a, b) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+const DADOS_PRESERVADOS = ["clientes", "atendimentos", "pagamentos", "despesas", "usuarios", "servicos", "cliente", "atendimento", "schema", "migracoes"];
 const medidas = {};
 after(() => gravarSaida("medidas-atualizacao.json", medidas));
 
@@ -75,6 +80,7 @@ for (const [ANTERIOR, REF] of PARTIDAS) describe(`atualização ${ANTERIOR} → 
     const nativa = await page.evaluate(async () => (await indexedDB.databases()).find((d) => d.name === "salao_gestao").version); assert.equal(nativa, 1, "IndexedDB sem mudança de versão");
   });
 
+  if (cmpV(ANTERIOR, "11.3.0") < 0) {
   T(`retorno ${VERSAO} → ${ANTERIOR} RECUSADO (abaixo da versão mínima segura 11.3.0): página e service worker; um pino antigo nunca é servido`, async () => {
     const r = await page.evaluate(async (v) => { const M = await import("./js/data/manutencao.js"); const p = await M.podeVoltarPara(v); let erro = ""; try { await M.voltarVersao(v); } catch (e) { erro = e.message; }
       return { minima: M.VERSAO_MINIMA_RETORNO, p, erro, sw: await M.swMsg({ tipo: "fixar-versao", versao: v }) }; }, ANTERIOR);
@@ -88,16 +94,48 @@ for (const [ANTERIOR, REF] of PARTIDAS) describe(`atualização ${ANTERIOR} → 
     assert.equal(await versao(), VERSAO, "o service worker não serve a versão antiga"); assert.equal(await meta("fixada"), null, "e desfaz o pino");
   });
 
-  T(`tentativa de retorno para ${ANTERIOR} pela TELA não altera a versão ativa, os dados, as cópias nem os caches`, async () => {
+  T(`${ANTERIOR} pela TELA: aparece como "não pode ser usada para retorno seguro", com o motivo e SEM o botão "Voltar para esta"; nada muda (versão, dados, cópias, caches)`, async () => {
     const antes = { versao: await versao(), dados: await estadoDados(page), caches: await caches(page) };
-    await page.goto(srv.url + "#/manutencao"); await page.waitForSelector(`[data-voltar="${ANTERIOR}"]`);
-    await page.click(`[data-voltar="${ANTERIOR}"]`); await page.click(".modal [data-ok]");
-    await page.waitForSelector("#m-res .alert.erro"); assert.match(await page.textContent("#m-res"), /antiga demais para um retorno seguro/);
+    await page.goto(srv.url + "#/manutencao"); await page.waitForSelector(`[data-retorno-bloqueado="${ANTERIOR}"]`);
+    assert.match(await page.textContent(`[data-retorno-bloqueado="${ANTERIOR}"]`), new RegExp(`^Não pode ser usada para retorno seguro: a versão ${ANTERIOR.replace(/\./g, "\\.")} é antiga demais para um retorno seguro`));
+    assert.equal(await page.$$eval(`[data-voltar="${ANTERIOR}"]`, (l) => l.length), 0, "sem botão de retorno para a versão bloqueada");
+    assert.equal(await page.$$eval(`[data-voltar="${VERSAO}"]`, (l) => l.length), 0, "nem para a versão em uso");
+    // a função que o botão chamava continua recusando (defesa em profundidade: a tela não é a única barreira)
+    const erro = await page.evaluate(async (v) => { try { await (await import("./js/data/manutencao.js")).voltarVersao(v); return ""; } catch (e) { return e.message; } }, ANTERIOR);
+    assert.match(erro, /antiga demais para um retorno seguro/);
     await recarregar();
     assert.equal(await versao(), antes.versao); assert.equal(await meta("fixada"), null);
     assert.deepEqual(await estadoDados(page), antes.dados, "dados e cópias idênticos (nem a cópia pre_retorno_versao foi criada)");
     assert.deepEqual(await caches(page), antes.caches);
   });
+  } else {
+  T(`retorno ${VERSAO} → ${ANTERIOR} PERMITIDO pela TELA ("Voltar para esta"): ${ANTERIOR} em uso, dados preservados e consistentes, cópia antes; "Usar a mais recente" e ?recuperar=1 voltam para a ${VERSAO}`, async () => {
+    const e1 = await estadoDados(page);
+    await page.goto(srv.url + "#/manutencao"); await page.waitForSelector(`[data-voltar="${ANTERIOR}"]`);
+    assert.equal((await page.textContent(`[data-voltar="${ANTERIOR}"]`)).trim(), "Voltar para esta");
+    assert.equal(await page.$$eval(`[data-retorno-bloqueado="${ANTERIOR}"]`, (l) => l.length), 0, "versão compatível: sem aviso de bloqueio");
+    await page.click(`[data-voltar="${ANTERIOR}"]`);
+    await Promise.all([page.waitForEvent("framenavigated", { timeout: 60000 }), page.click(".modal [data-ok]")]);
+    await page.waitForFunction((v) => globalThis.SALAO_VERSAO?.versao === v, ANTERIOR, { timeout: 30000 }); await page.waitForSelector("#vista");
+    assert.equal(await meta("fixada"), ANTERIOR, `${ANTERIOR} fixada e em uso`);
+    const e2 = await estadoDados(page); assert.equal(e2.versao, ANTERIOR);
+    for (const k of DADOS_PRESERVADOS) assert.deepEqual(e2[k], e1[k], `dado preservado: ${k}`);
+    assert.ok(e2.backups.includes("pre_retorno_versao"), "cópia antes do retorno");
+    const c = await page.evaluate(async () => { const r = await (await import("./js/data/backup.js")).criarValidado(); return { ok: r.consistente, erros: r.rel.erros }; });
+    assert.equal(c.ok, true, `a ${ANTERIOR} lê os dados deixados pela ${VERSAO} sem inconsistência: ${c.erros.join(" | ")}`);
+    // "Usar a mais recente" (tela da própria ${ANTERIOR})
+    await page.goto(srv.url + "#/manutencao"); await page.waitForSelector(`[data-voltar="${ANTERIOR}"]`);
+    assert.match(await page.textContent(`[data-voltar="${ANTERIOR}"]`), /Usar a mais recente/);
+    await Promise.all([page.waitForEvent("framenavigated", { timeout: 60000 }), page.click(`[data-voltar="${ANTERIOR}"]`)]);
+    await page.waitForFunction((v) => globalThis.SALAO_VERSAO?.versao === v, VERSAO, { timeout: 30000 }); await page.waitForSelector("#vista");
+    assert.equal(await meta("fixada"), null);
+    // rota de emergência: fixa de novo e sai com ?recuperar=1
+    await page.evaluate(async (v) => (await import("./js/data/manutencao.js")).voltarVersao(v), ANTERIOR); await recarregar(); assert.equal(await versao(), ANTERIOR);
+    await page.goto(srv.url + "?recuperar=1#/hoje"); await page.waitForSelector("#vista");
+    assert.equal(await versao(), VERSAO); assert.equal(await meta("fixada"), null); assert.ok(!page.url().includes("recuperar"));
+    const e3 = await estadoDados(page); for (const k of DADOS_PRESERVADOS) assert.deepEqual(e3[k], e1[k], `dado preservado após voltar: ${k}`);
+  });
+  }
 
   T("P1: versão com banco mais antigo é bloqueada (página e service worker) e um pino incompatível é ignorado", async () => {
     await page.evaluate(async (V) => { // simula versões antigas guardadas: banco 0 (estrutura anterior) e schema 1
@@ -113,6 +151,14 @@ for (const [ANTERIOR, REF] of PARTIDAS) describe(`atualização ${ANTERIOR} → 
     await page.evaluate(async () => (await caches.open("salao-meta")).put("fixada", new Response("9.9.9"))); // pino incompatível gravado por fora
     await pararSW(); await recarregar();
     assert.equal(await versao(), VERSAO); assert.equal(await meta("fixada"), null);
+  });
+
+  T("11.3.1: versões incompatíveis aparecem na TELA com o motivo e sem botão de retorno", async () => {
+    await page.goto(srv.url + "#/manutencao"); await page.waitForSelector('[data-retorno-bloqueado="9.9.9"]');
+    assert.match(await page.textContent('[data-retorno-bloqueado="9.9.9"]'), /^Não pode ser usada para retorno seguro: a versão 9\.9\.9 usa a estrutura de dados v0, mais antiga que a atual/);
+    assert.match(await page.textContent('[data-retorno-bloqueado="9.9.8"]'), /^Não pode ser usada para retorno seguro: a versão 9\.9\.8 não conhece as atualizações de dados/);
+    assert.equal(await page.$$eval('[data-voltar="9.9.9"], [data-voltar="9.9.8"]', (l) => l.length), 0, "sem botão para versões incompatíveis");
+    assert.equal(await meta("fixada"), null);
   });
 
   T("emergência: ?recuperar=1 desafixa e abre a versão atual; a marca sai da barra de endereço", async () => {

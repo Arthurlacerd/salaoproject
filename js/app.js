@@ -20,6 +20,14 @@ function tela(titulo, corpo) {
   return raiz().querySelector(".login-card");
 }
 const erroBox = (el) => el.querySelector(".login-erro") || el.insertAdjacentElement("afterbegin", Object.assign(document.createElement("div"), { className: "alert erro login-erro", role: "alert" }));
+/** 11.3.1: envio em andamento — botão desabilitado com o texto da etapa; um segundo envio é ignorado; se algo falhar,
+ *  o botão volta ao normal e o erro aparece. */
+function emAndamento(form, el, acao) {
+  const bt = form.querySelector('button[type="submit"]'), original = bt.textContent; let enviando = false;
+  const etapa = (t) => { bt.disabled = true; bt.textContent = t; };
+  form.onsubmit = async (e) => { e.preventDefault(); if (enviando) return; enviando = true; const d = Object.fromEntries(new FormData(form));
+    try { await acao(d, etapa); } catch (err) { bt.disabled = false; bt.textContent = original; enviando = false; erroBox(el).textContent = err.message; } };
+}
 
 async function recuperacao(m) { // dados perdidos: aparelho sem usuários — restauração sem login permitida (D1)
   const el = tela("Seus dados não foram encontrados", `<p>Este aparelho já tinha ${m.clientes} cliente(s) cadastrada(s) (última marcação: ${esc(m.quando)}), mas o banco está vazio. Isso acontece quando os <strong>dados do site são limpos</strong> no navegador, o app é desinstalado ou o modo privado é usado.</p><p class="muted">Não é possível recuperar dados apagados sem um arquivo de backup. Se você tiver um <strong>.salaobackup</strong>, restaure-o abaixo.</p><label class="field">Arquivo de backup<input type="file" id="arq" accept=".salaobackup,.json"></label><div class="form-actions"><button class="button" id="rest">Verificar arquivo</button><button class="button button-light" id="novo">Começar do zero</button></div><div id="previa"></div>`);
@@ -28,11 +36,11 @@ async function recuperacao(m) { // dados perdidos: aparelho sem usuários — re
 }
 function configuracaoInicial() {
   const el = tela("Bem-vinda ao Salão.gestão", `<p class="muted">Seus dados ficam <strong>somente neste dispositivo</strong>. Crie o acesso do administrador.</p><form id="f" class="form-grid"><label class="field field-full">Nome do salão<input name="salao" required maxlength="40"></label><label class="field">Seu nome<input name="nome" required maxlength="60"></label><label class="field">Usuário<input name="usuario" required maxlength="30" autocapitalize="none"></label><label class="field field-full">Senha (mín. 8)<input type="password" name="senha" required minlength="8" autocomplete="new-password"></label><div class="form-actions field-full"><button class="button" type="submit">Criar e entrar</button></div></form><hr><p class="muted">Já tem um backup (.salaobackup) deste aplicativo? <a href="#/restaurar" class="text-link">Restaure agora</a>. A compatibilidade com backups da versão 9.x (servidor) não foi verificada.</p>`);
-  el.querySelector("#f").onsubmit = async (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); try { await Usr.configurarPrimeiro(d); await Usr.entrar(d.usuario, d.senha); iniciarSessao(); } catch (err) { erroBox(el).textContent = err.message; } };
+  emAndamento(el.querySelector("#f"), el, async (d, etapa) => { etapa("Criando o acesso…"); await Usr.configurarPrimeiro(d); await Usr.entrar(d.usuario, d.senha); await iniciarSessao({ etapa }); });
 }
 function login() { // D1: o aparelho tem usuários, então não há restauração sem login (nem link para ela)
   const el = tela("Entrar", `<form id="f" class="form-grid"><label class="field field-full">Usuário<input name="usuario" required autocapitalize="none" autocomplete="username"></label><label class="field field-full">Senha<input type="password" name="senha" required autocomplete="current-password"></label><div class="form-actions field-full"><button class="button" type="submit">Entrar</button></div></form>${Rst.indicioDesfazer() ? `<p class="muted"><a class="text-link" href="#/desfazer">Desfazer a última restauração</a></p>` : ""}`);
-  el.querySelector("#f").onsubmit = async (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); try { await Usr.entrar(d.usuario, d.senha); iniciarSessao(); } catch (err) { erroBox(el).textContent = err.message; } };
+  emAndamento(el.querySelector("#f"), el, async (d, etapa) => { etapa("Entrando…"); await Usr.entrar(d.usuario, d.senha); await iniciarSessao({ etapa }); });
 }
 async function restaurarPublico() { // sem login: SOMENTE em aparelho sem nenhum usuário (primeiro acesso / dados perdidos)
   if (!(await Rst.restauracaoSemLoginPermitida())) {
@@ -70,9 +78,9 @@ async function avisos() {
   const dias = d ? (Date.now() - new Date(d.replace(" ", "T"))) / 864e5 : Infinity;
   if (n && dias > 7) { b.hidden = false; b.innerHTML = `${d ? `Último backup baixado há ${Math.floor(dias)} dias.` : "Você ainda não baixou nenhum backup."} <a class="text-link" href="#/dados">Fazer backup</a>`; } else b.hidden = true;
 }
-async function iniciarSessao() {
+async function iniciarSessao({ etapa } = {}) { // 11.3.1: etapa(texto) mostra o andamento (a ordem abaixo não mudou)
   await Rst.encerrarDesfazerSemLogin(); // alguém entrou: desfazer a última restauração passa a exigir login (Dados e backup)
-  const c = await config(); try { if (c.backup_automatico === "1") await Bkp.backupAutomatico(); } catch (e) { console.warn(e); }
+  const c = await config(); try { if (c.backup_automatico === "1") await Bkp.backupAutomatico({ aoPreparar: () => etapa && etapa("Entrando… preparando a cópia do dia") }); } catch (e) { console.warn(e); }
   zelarInatividade(+c.bloqueio_minutos || 0); if (!location.hash || /entrar|restaurar/.test(location.hash)) location.hash = "#/hoje"; rotear();
 }
 function zelarInatividade(min) {
@@ -123,6 +131,9 @@ addEventListener("online", rede); addEventListener("offline", rede); addEventLis
   } catch (e) { tela("Não foi possível atualizar a estrutura dos dados", `<p>Seus dados <strong>não foram alterados</strong>. ${esc(e.message)}</p><p class="muted">Tente recarregar. Se persistir, restaure um backup.</p>`); return; }
   registrarSW();
   const m = Bkp.marca(); if (!(await Usr.existeAlgum()) && m && m.clientes > 0 && !/restaurar/.test(location.hash)) return recuperacao(m);
-  if (await Usr.restaurarSessao()) return iniciarSessao();
+  if (await Usr.restaurarSessao()) { // 11.3.1: sessão ativa ao reabrir — mostra o andamento em vez de uma tela em branco
+    tela("Entrando…", `<p class="muted" role="status" id="entrando">Abrindo seus dados…</p>`);
+    return iniciarSessao({ etapa: (t) => { const p = document.getElementById("entrando"); if (p) p.textContent = t; } });
+  }
   rotear();
 })();

@@ -72,10 +72,10 @@ export async function snapshot(motivo, extra = {}) {
 }
 export async function snapshots() { return (await ler("backups")).sort((a, b) => b.id - a.id).map(({ texto, ...r }) => r); }
 export async function snapshotTexto(id) { return (await ler("backups")).find((b) => b.id === id)?.texto; }
-export async function backupAutomatico() {
+export async function backupAutomatico({ aoPreparar } = {}) { // 11.3.1: aoPreparar avisa a tela que a cópia do dia vai começar
   const c = await config(); if (c.backup_automatico !== "1") return null; const hoje = agora().slice(0, 10);
   const ult = (await snapshots()).find((b) => b.motivo === "automatico"); if (ult && ult.criado_em.slice(0, 10) === hoje) return null;
-  if (!(await ler("clientes")).length) return null; return snapshot("automatico");
+  if (!(await ler("clientes")).length) return null; try { if (aoPreparar) aoPreparar(); } catch (_) {} return snapshot("automatico");
 }
 /** Restauração segura (11.3): validação completa, autorização, prova de acesso, cópia antes da restauração e gravação
  *  atômica conferida antes do commit — ver restauracao.js. Mantido por compatibilidade: devolve as contagens. */

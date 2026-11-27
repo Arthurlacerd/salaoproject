@@ -45,7 +45,7 @@ T("Diagnóstico: todos os itens exigidos, nenhuma falha e nenhum dado pessoal no
   await page.goto(srv.url + "#/diagnostico"); await page.waitForSelector("[data-diag]");
   const itens = await page.$$eval("[data-diag]", (els) => els.map((e) => [e.dataset.diag, e.dataset.estado]));
   const ids = itens.map((i) => i[0]);
-  for (const id of ["versao", "https", "manifest", "icones", "sw", "cache", "offline", "indexeddb", "persistencia", "atualizacao", "falha", "instalacao"]) assert.ok(ids.includes(id), `falta item ${id}`);
+  for (const id of ["versao", "https", "manifest", "icones", "sw", "cache", "offline", "indexeddb", "backup", "persistencia", "atualizacao", "falha", "instalacao"]) assert.ok(ids.includes(id), `falta item ${id}`);
   assert.deepEqual(itens.filter((i) => i[1] === "erro"), [], "nenhuma falha");
   const rel = await page.evaluate(async () => { const D = await import("./js/data/diagnostico.js"); return D.relatorio(await D.executar()); });
   const tela = await page.textContent("#vista");

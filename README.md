@@ -43,5 +43,6 @@ docs/               BUILD.md, PWA_UPDATE_PROCESS.md, CHANGELOG_*.md
    `js/data/migracoes.js`, com `banco`/`schema` atualizados. O build confere.
 5. O service worker **nunca** acessa o IndexedDB. O build reprova.
 6. O `.salaobackup` baixado é a proteção principal dos dados. As cópias locais não sobrevivem à limpeza dos dados do site.
+   A restauração aceita backups de até **30 MB**. O app avisa a partir de 24 MB (veja `docs/PWA_UPDATE_PROCESS.md` › 6).
 7. Restaurar nunca pode deixar o aparelho sem administrador: valide tudo antes de gravar, grave numa única transação e
    mantenha a cópia antes da restauração (`js/data/restauracao.js`; regras em `docs/PWA_UPDATE_PROCESS.md › 4b`).

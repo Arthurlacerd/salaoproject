@@ -51,8 +51,11 @@ Sempre faça o merge de uma vez só (merge commit ou squash). Nunca envie arquiv
   maior que o atual. Versões incompatíveis são bloqueadas na página **e** no service worker, porque o IndexedDB recusaria
   abrir e o app não abriria. Os dados nunca sofrem *downgrade*.
 - **Versão mínima segura: 11.3.0.** As versões anteriores (11.2, 11.1…) restauravam backups sem login e são bloqueadas
-  na página **e** no service worker. A comparação é numérica (`11.10.0` > `11.3.0`). Na 11.3.0 não há, por isso, versão
-  para onde voltar: um problema nela se resolve publicando uma versão nova.
+  na página **e** no service worker. A comparação é numérica (`11.10.0` > `11.3.0`). Na 11.3.0 não havia, por isso, versão
+  para onde voltar. A partir da 11.3.1, a 11.3.0 é uma versão de retorno permitida (11.3.1 → 11.3.0 é testado).
+- **Na tela (11.3.1):** só as versões permitidas mostram **Voltar para esta**. As bloqueadas aparecem com "Não pode ser
+  usada para retorno seguro" e o motivo, sem botão. A tela usa a mesma regra da página (`podeVoltarPara`). O service worker
+  continua recusando por conta própria, e `?recuperar=1` continua desafixando.
 - Se um pino incompatível ou abaixo do mínimo existir por qualquer motivo, o service worker o ignora e desafixa sozinho.
 - **Atenção à segurança:** enquanto uma versão anterior estiver fixada, valem as regras dela. Ao subir a versão mínima no
   futuro, altere `VERSAO_MINIMA_RETORNO` em `js/data/manutencao.js` **e** em `sw.js` (o teste unitário confere que são iguais).
@@ -112,3 +115,24 @@ As cópias automáticas (até 8, mais a última de cada tipo de segurança, até
 mesmo banco**. Elas protegem contra erro de operação e de atualização, mas **não** contra a limpeza dos dados do site ou a
 desinstalação. O arquivo `.salaobackup` baixado, guardado fora do aparelho, continua sendo a proteção principal; o app
 avisa quando o último download tem mais de 7 dias.
+
+**Limite de tamanho da restauração: 30 MB** (`LIMITE_BYTES` em `js/data/validacao_backup.js`; sem mudança na 11.3.1).
+Um backup acima desse limite **não pode ser restaurado por este aplicativo**, nem a partir do arquivo nem a partir de uma
+cópia do aparelho. O backup cresce com o uso, e a maior causa é o **histórico de alterações (auditoria)**: na auditoria da
+11.3.0, com uso simulado, ela foi ~72% do backup, ~1,9 KB por atendimento, ~9 MB por ano de uso típico, e o limite foi
+alcançado em ~3,5 anos. São estimativas: o uso real pode ser diferente.
+
+Desde a 11.3.1, o app avisa antes de chegar lá. O aviso só informa e **nunca bloqueia a exportação**:
+
+| Tamanho do backup | O que aparece |
+|---|---|
+| abaixo de 24 MB (80%) | nada (comportamento de sempre) |
+| a partir de 24 MB | alerta: perto do limite de 30 MB que a restauração aceita |
+| a partir de 27 MB (90%) | alerta forte: muito perto do limite, procure o suporte |
+| 30 MB ou mais | o backup **ultrapassou o limite** da restauração e não pode ser restaurado por este aplicativo |
+
+O aviso aparece em **Dados e backup** e em **Manutenção** (pela última cópia do aparelho, e de novo depois de exportar),
+além de **Diagnóstico › Tamanho do backup**. O tamanho medido é o do texto do backup, o mesmo que a restauração de uma
+cópia confere. O arquivo baixado, em bytes, é ~0,7% maior por causa dos acentos. Numa faixa estreita logo abaixo de
+30 MB, o app pode mostrar "muito perto do limite" quando o arquivo já passou de 30 MB. Por isso o alerta forte começa em
+27 MB e já recomenda procurar o suporte.

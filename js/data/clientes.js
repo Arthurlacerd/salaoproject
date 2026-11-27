@@ -1,4 +1,4 @@
-import { transacao, ler, agora, norm, auditar } from "./database.js";
+import { transacao, ler, agora, hoje, norm, auditar } from "./database.js";
 import { exigir } from "./permissoes.js";
 const dig = (t) => String(t || "").replace(/\D/g, "");
 export async function listar({ q = "", inativasDias = 0 } = {}) {
@@ -14,7 +14,7 @@ export function perfil(c, ats) {
   const hojeMs = new Date(new Date().toDateString()).getTime();
   const feitos = ats.filter((a) => a.status_atendimento === "Realizado");
   const ult = feitos.map((a) => a.data).sort().pop() || null;
-  const prox = ats.filter((a) => ["Agendado", "Confirmado"].includes(a.status_atendimento) && a.data >= new Date().toISOString().slice(0, 10)).map((a) => a.data).sort()[0] || null;
+  const prox = ats.filter((a) => ["Agendado", "Confirmado"].includes(a.status_atendimento) && a.data >= hoje()).map((a) => a.data).sort()[0] || null; // 11.3.1: data local (antes UTC: sumia depois das 21h)
   const gasto = ats.reduce((s, a) => s + (a.valor_recebido_centavos || 0), 0);
   const dias = ult ? Math.floor((hojeMs - new Date(ult + "T00:00:00").getTime()) / 864e5) : null;
   const tags = []; if (feitos.length >= 5 || gasto >= 100000) tags.push("VIP"); else if (feitos.length >= 2) tags.push("Recorrente");

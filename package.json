@@ -1,6 +1,6 @@
 {
   "name": "salao-gestao",
-  "version": "11.3.0",
+  "version": "11.3.1",
   "private": true,
   "description": "Salão.gestão — PWA 100% local. Sem dependências: estes scripts só usam Node (node:test) e Python 3.",
   "type": "module",
