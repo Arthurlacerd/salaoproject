@@ -26,6 +26,8 @@ export async function montar(rota) {
   document.documentElement.style.setProperty("--bg", cfg.cor_fundo);
   document.documentElement.setAttribute("data-bloqueio", cfg.bloqueio_minutos);
   document.title = cfg.nome_sistema;
+  // 11.3.2: mensagens de sucesso e avisos não críticos sobrevivem ao redesenho; as de erro, não (ficam na tela em que aconteceram)
+  const manter = [...document.querySelectorAll("#alertas > .alert:not(.erro)")];
   document.body.innerHTML = `
   <a class="skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
   <div class="shell">
@@ -56,6 +58,7 @@ export async function montar(rota) {
   <div class="sheet" id="folha-acoes" role="dialog" aria-modal="true" aria-label="Ações rápidas" hidden><div class="sheet-card"><div class="sheet-handle"></div><h2 class="sheet-title">Ações rápidas</h2><div class="sheet-grid">${rapidas.map(qaHtml).join("")}</div><button class="button button-light" type="button" data-fechar-folha style="width:100%;margin-top:12px">Fechar</button></div></div>
   ${rapidas.length ? `<button class="fab" type="button" id="abrir-acoes" aria-label="Ações rápidas">${ic("plus", 28)}</button>` : ""}
   <div class="palette" id="paleta" role="dialog" aria-modal="true" aria-label="Comandos e busca" hidden><div class="palette-card"><input id="paleta-entrada" type="text" placeholder="Digite um comando ou busque…" autocomplete="off"><ul id="paleta-lista"></ul></div></div>`;
+  const alertas = document.getElementById("alertas"); if (alertas) for (const n of manter) alertas.appendChild(n); // cada uma some sozinha (~5 s, toast)
   window.__comandos = [...permitidos().map(([k, , r]) => ({ rotulo: "Abrir " + r, url: `#/${k}`, k: r })), ...rapidas.map((r) => ({ rotulo: r[2], url: `#/${r[0]}`, k: r[2] })), { rotulo: "Ocultar/mostrar valores", acao: "privacidade", k: "privacidade ocultar" }];
   ligar();
 }

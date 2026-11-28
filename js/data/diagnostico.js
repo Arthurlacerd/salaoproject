@@ -3,7 +3,7 @@
 // valores, hashes de senha, contagens de registros ou conteúdo de backups — apenas informações técnicas.
 import { INFO, VERSAO_BANCO, VERSAO_SCHEMA, ler, config, agora } from "./database.js";
 import { snapshots } from "./backup.js";
-import { avaliarTamanho, emMB, LIMITE_RESTAURACAO } from "./tamanho_backup.js";
+import { avaliarTamanho, emMB, LIMITE_RESTAURACAO, tamanhoCopia } from "./tamanho_backup.js";
 
 // ---------- instalação: o que o navegador informou (beforeinstallprompt / escolha / appinstalled) ----------
 const CHAVE = "salao_instalacao";
@@ -155,7 +155,7 @@ async function verificarTamanhoBackup() {
   try {
     const ult = (await snapshots())[0];
     if (!ult) return item("backup", T, "ok", `Ainda não há cópia para medir. A restauração aceita backups de até ${emMB(LIMITE_RESTAURACAO)}.`);
-    const t = avaliarTamanho(ult.tamanho), base = `Última cópia: ${emMB(ult.tamanho)} de ${emMB(LIMITE_RESTAURACAO)} (limite da restauração).`;
+    const tam = tamanhoCopia(ult), t = avaliarTamanho(tam), base = `Última cópia: ${emMB(tam)} de ${emMB(LIMITE_RESTAURACAO)} (limite da restauração).`; // 11.3.2: bytes reais
     return item("backup", T, t.nivel === "ok" ? "ok" : t.nivel === "acima" ? "erro" : "aviso", t.mensagem ? `${base} ${t.mensagem}` : base);
   } catch (e) { return item("backup", T, "aviso", "Não foi possível medir o tamanho do backup: " + e.message); }
 }

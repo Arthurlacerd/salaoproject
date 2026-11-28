@@ -7,7 +7,7 @@ import { ler } from "./data/database.js";
 import { esc, toast, esqueleto } from "./ui/util.js";
 import { ic, tile } from "./ui/icones.js";
 import { montar, rede } from "./ui/shell.js";
-import { ROTAS, mostrarPrevia, painelDesfazer } from "./ui/views.js";
+import { ROTAS, mostrarPrevia, painelDesfazer, limparPrevia, erroNaPrevia } from "./ui/views.js";
 import * as Rst from "./data/restauracao.js";
 import { marcarInstalacao } from "./data/diagnostico.js";
 
@@ -29,10 +29,17 @@ function emAndamento(form, el, acao) {
     try { await acao(d, etapa); } catch (err) { bt.disabled = false; bt.textContent = original; enviando = false; erroBox(el).textContent = err.message; } };
 }
 
+/** 11.3.2: verificar um arquivo nas telas sem login. A prévia anterior sai da tela e um erro de leitura aparece na própria
+ *  tela (aqui não há área de avisos). Só lê: nada é gravado antes da confirmação na prévia. */
+async function verificarSemLogin(el, f) {
+  limparPrevia(el, "Verificando o arquivo…");
+  try { await mostrarPrevia(el, await Rst.analisarArquivo(f), f.name, { publico: true }); }
+  catch (err) { el.querySelector("#arq").value = ""; erroNaPrevia(el, "Não foi possível verificar o arquivo (nada foi alterado)", err); }
+}
 async function recuperacao(m) { // dados perdidos: aparelho sem usuários — restauração sem login permitida (D1)
   const el = tela("Seus dados não foram encontrados", `<p>Este aparelho já tinha ${m.clientes} cliente(s) cadastrada(s) (última marcação: ${esc(m.quando)}), mas o banco está vazio. Isso acontece quando os <strong>dados do site são limpos</strong> no navegador, o app é desinstalado ou o modo privado é usado.</p><p class="muted">Não é possível recuperar dados apagados sem um arquivo de backup. Se você tiver um <strong>.salaobackup</strong>, restaure-o abaixo.</p><label class="field">Arquivo de backup<input type="file" id="arq" accept=".salaobackup,.json"></label><div class="form-actions"><button class="button" id="rest">Verificar arquivo</button><button class="button button-light" id="novo">Começar do zero</button></div><div id="previa"></div>`);
   el.querySelector("#novo").onclick = () => { localStorage.removeItem("salao_marca"); location.reload(); };
-  el.querySelector("#rest").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return toast("Escolha o arquivo.", "erro"); mostrarPrevia(el, await Rst.analisarArquivo(f), f.name, { publico: true }); };
+  el.querySelector("#rest").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return toast("Escolha o arquivo.", "erro"); await verificarSemLogin(el, f); };
 }
 function configuracaoInicial() {
   const el = tela("Bem-vinda ao Salão.gestão", `<p class="muted">Seus dados ficam <strong>somente neste dispositivo</strong>. Crie o acesso do administrador.</p><form id="f" class="form-grid"><label class="field field-full">Nome do salão<input name="salao" required maxlength="40"></label><label class="field">Seu nome<input name="nome" required maxlength="60"></label><label class="field">Usuário<input name="usuario" required maxlength="30" autocapitalize="none"></label><label class="field field-full">Senha (mín. 8)<input type="password" name="senha" required minlength="8" autocomplete="new-password"></label><div class="form-actions field-full"><button class="button" type="submit">Criar e entrar</button></div></form><hr><p class="muted">Já tem um backup (.salaobackup) deste aplicativo? <a href="#/restaurar" class="text-link">Restaure agora</a>. A compatibilidade com backups da versão 9.x (servidor) não foi verificada.</p>`);
@@ -48,7 +55,7 @@ async function restaurarPublico() { // sem login: SOMENTE em aparelho sem nenhum
     return;
   }
   const el = tela("Restaurar backup", `<p class="muted">Substitui os dados deste aparelho pelos do arquivo. Disponível sem entrar porque este aparelho ainda não tem usuários.</p><label class="field">Arquivo<input type="file" id="arq" accept=".salaobackup,.json"></label><div class="form-actions"><button class="button" id="verif">Verificar arquivo</button><a class="button button-light" href="#/">Voltar</a></div><div id="previa"></div>`);
-  el.querySelector("#verif").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return toast("Escolha o arquivo.", "erro"); mostrarPrevia(el, await Rst.analisarArquivo(f), f.name, { publico: true }); };
+  el.querySelector("#verif").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return toast("Escolha o arquivo.", "erro"); await verificarSemLogin(el, f); };
 }
 function desfazerPublico() { // sem login: só devolve o estado anterior; não mostra nem baixa dados
   const el = tela("Desfazer a última restauração", `<div id="desfazer"></div><p><a class="text-link" href="#/">Voltar</a></p>`);
