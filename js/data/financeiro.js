@@ -1,4 +1,4 @@
-import { transacao, ler, agora, auditar, hoje, sessao } from "./database.js";
+import { transacao, ler, agora, auditar, hoje, sessao, lerPorIndice, chaveSimples } from "./database.js";
 import { exigir } from "./permissoes.js";
 import { validarData, dataValida } from "./datas.js";
 export const FORMAS_DESP = ["Dinheiro", "Pix", "Débito", "Crédito", "Transferência", "Boleto", "Não informado"];
@@ -47,7 +47,7 @@ export async function corrigirDataLancamento(id, nova) {
     await auditar(t, "correcao", "pagamento", id, `Data inválida do ${p.tipo === "estorno" ? "estorno" : "recebimento"} de ${(p.valor_centavos / 100).toFixed(2)} (atendimento ${p.atendimento_id}) corrigida pelo administrador`, "data", p.data, nova);
   });
 }
-export async function pagamentosDe(aid) { exigir("agenda.ler"); return (await ler("pagamentos")).filter((p) => p.atendimento_id === aid).sort((a, b) => a.id - b.id); }
+export async function pagamentosDe(aid) { exigir("agenda.ler"); return (chaveSimples(aid) ? await lerPorIndice("pagamentos", "atendimento_id", aid) : await ler("pagamentos")).filter((p) => p.atendimento_id === aid) /* 11.4: índice atendimento_id */.sort((a, b) => a.id - b.id); }
 // ---- despesas ----
 export async function listarDespesas({ de, ate, categoria } = {}) { exigir("despesas.gravar"); return (await ler("despesas")).filter((d) => (!de || d.data >= de) && (!ate || d.data <= ate) && (!categoria || d.categoria === categoria)).sort((a, b) => b.data.localeCompare(a.data) || b.id - a.id); }
 export async function salvarDespesa(d) {

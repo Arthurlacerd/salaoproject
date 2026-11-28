@@ -1,4 +1,4 @@
-import { transacao, ler, agora, auditar, hoje } from "./database.js";
+import { transacao, ler, agora, auditar, hoje, obter as obterRegistro, lerPorIndice, chaveSimples } from "./database.js";
 import { exigir, pode } from "./permissoes.js";
 import { recalcular, registrar } from "./financeiro.js";
 import { validarData } from "./datas.js";
@@ -14,16 +14,32 @@ export function conflito(lista, data, inicio, dur, ignorar = null) {
   return lista.find((a) => a.id !== ignorar && a.data === data && !LIBERA.includes(a.status_atendimento) && i < min(a.horario_agendado) + (a.duracao_min || 60) && min(a.horario_agendado) < f) || null;
 }
 export async function checarConflito(data, inicio, dur, ignorar) { return conflito(await ler("atendimentos"), data, inicio, dur, ignorar); }
+/** Campos derivados que as telas usam (iguais para listar e obter). c = a cliente do atendimento (ou undefined). */
+const derivar = (a, c) => ({ ...a, cliente_nome: c?.nome || "(cliente removida)", telefone: c?.telefone || "", fim: fim(a), saldo: Math.max(0, a.valor_centavos - (a.valor_recebido_centavos || 0)) });
+/** 11.4: com período, lê só esse intervalo pelo índice "data" (que já existe). O mesmo filtro de antes é aplicado
+ *  em seguida, então o resultado é idêntico ao da leitura completa. */
+async function atendimentosDoPeriodo(de, ate) {
+  if (!de && !ate) return ler("atendimentos");
+  if ((de && typeof de !== "string") || (ate && typeof ate !== "string")) return ler("atendimentos");
+  if (de && ate && de > ate) return [];
+  return lerPorIndice("atendimentos", "data", de && ate ? IDBKeyRange.bound(de, ate) : de ? IDBKeyRange.lowerBound(de) : IDBKeyRange.upperBound(ate));
+}
 export async function listar({ de, ate, status } = {}) {
   exigir("agenda.ler");
-  const [ats, cs] = await Promise.all([ler("atendimentos"), ler("clientes")]); const nomes = new Map(cs.map((c) => [c.id, c]));
+  const [ats, cs] = await Promise.all([atendimentosDoPeriodo(de, ate), ler("clientes")]); const nomes = new Map(cs.map((c) => [c.id, c]));
   return ats.filter((a) => (!de || a.data >= de) && (!ate || a.data <= ate) && (!status || a.status_atendimento === status))
-    .map((a) => ({ ...a, cliente_nome: nomes.get(a.cliente_id)?.nome || "(cliente removida)", telefone: nomes.get(a.cliente_id)?.telefone || "", fim: fim(a), saldo: Math.max(0, a.valor_centavos - (a.valor_recebido_centavos || 0)) }))
+    .map((a) => derivar(a, nomes.get(a.cliente_id)))
     .sort((x, y) => (x.data + x.horario_agendado).localeCompare(y.data + y.horario_agendado));
 }
-export async function obter(id) { const r = await listar(); return r.find((a) => a.id === id) || null; }
+/** 11.4: busca direta pelo id (antes: listava todos para achar um). Mesmos campos derivados e mesma permissão. */
+export async function obter(id) {
+  exigir("agenda.ler"); if (!chaveSimples(id)) return null;
+  const a = await obterRegistro("atendimentos", id); if (!a) return null;
+  return derivar(a, chaveSimples(a.cliente_id) ? await obterRegistro("clientes", a.cliente_id) : undefined);
+}
 export async function livres(data, ini = "08:00", fimExp = "19:00") {
-  const dia = (await ler("atendimentos")).filter((a) => a.data === data && !LIBERA.includes(a.status_atendimento)).sort((a, b) => a.horario_agendado.localeCompare(b.horario_agendado));
+  const doDia = typeof data === "string" ? await lerPorIndice("atendimentos", "data", data) : await ler("atendimentos"); // 11.4: índice "data"
+  const dia = doDia.filter((a) => a.data === data && !LIBERA.includes(a.status_atendimento)).sort((a, b) => a.horario_agendado.localeCompare(b.horario_agendado));
   const r = []; let cur = min(ini); const f = min(fimExp);
   for (const a of dia) { const s = min(a.horario_agendado), e = s + (a.duracao_min || 60); if (s - cur >= 30) r.push([hhmm(cur), hhmm(s)]); cur = Math.max(cur, e); }
   if (f - cur >= 30) r.push([hhmm(cur), hhmm(f)]); return r;

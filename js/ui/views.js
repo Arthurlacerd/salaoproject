@@ -119,7 +119,7 @@ rota(/^agenda$/, async (_, q) => {
 });
 // ============================ ATENDIMENTO ============================
 async function formAtendimento(id, q) {
-  const [cs, ss, cfg] = [(await Cli.listar()), await Srv.listar({ apenasAtivos: true }), await config()];
+  const [cs, ss, cfg] = [(await Cli.listarNomes()), await Srv.listar({ apenasAtivos: true }), await config()]; // 11.4: só as clientes (mesma ordem)
   const a = id ? await Ag.obter(id) : null; if (id && !a) return { html: vazio("Atendimento não encontrado") };
   const P = lerParametros(q, { cliente: PARAM.id(), data: PARAM.data(hojeISO), inicio: PARAM.hora("") }); // 11.4: validados (cliente precisa existir)
   const v = a || { cliente_id: cs.some((c) => c.id === P.cliente) ? P.cliente : "", data: P.data, horario_agendado: P.inicio, duracao_min: 60, servico: "", valor_centavos: 0, forma_pagamento: "", observacoes: "" };

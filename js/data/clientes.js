@@ -5,12 +5,22 @@ const dig = (t) => String(t || "").replace(/\D/g, "");
 export async function listar({ q = "", inativasDias = 0 } = {}) {
   exigir("clientes.ler");
   const [cs, ats] = await Promise.all([ler("clientes"), ler("atendimentos")]);
-  const perfis = cs.map((c) => perfil(c, ats.filter((a) => a.cliente_id === c.id)));
+  return montarLista(cs, ats, { q, inativasDias });
+}
+/** 11.4: atendimentos agrupados por cliente numa passada (O(C+A); antes, um filtro por cliente: O(C×A)).
+ *  A ordem dentro de cada grupo é a mesma do filtro (ordem da leitura). */
+export function agruparPorCliente(ats) { const g = new Map(); for (const a of ats) { const k = a.cliente_id, l = g.get(k); if (l) l.push(a); else g.set(k, [a]); } return g; }
+/** Parte pura de listar (testada contra a implementação anterior). */
+export function montarLista(cs, ats, { q = "", inativasDias = 0 } = {}) {
+  const grupos = agruparPorCliente(ats), vazio = [];
+  const perfis = cs.map((c) => perfil(c, grupos.get(c.id) || vazio));
   const nq = norm(q), dq = dig(q);
   let r = perfis.filter((p) => !q || norm(p.nome).includes(nq) || (dq && dig(p.telefone).includes(dq)));
   if (inativasDias) r = r.filter((p) => p.dias_sem_visita != null && p.dias_sem_visita >= inativasDias && !p.proximo);
   return r.sort((a, b) => norm(a.nome).localeCompare(norm(b.nome)));
 }
+/** 11.4: só as clientes, na mesma ordem de listar() (para a lista do formulário de agendamento). */
+export async function listarNomes() { exigir("clientes.ler"); return (await ler("clientes")).sort((a, b) => norm(a.nome).localeCompare(norm(b.nome))); }
 export function perfil(c, ats) {
   const hojeMs = new Date(new Date().toDateString()).getTime();
   const feitos = ats.filter((a) => a.status_atendimento === "Realizado");
