@@ -10,6 +10,7 @@
 import { STATUS, FORMAS } from "./agenda.js";
 import { CATEGORIAS_DESP, FORMAS_DESP } from "./financeiro.js";
 import { analisarHash } from "./senha.js";
+import { dataValida } from "./datas.js";
 
 export const TABELAS_PERMITIDAS = ["clientes", "servicos", "atendimentos", "pagamentos", "despesas", "auditoria", "configuracoes_sistema", "usuarios"];
 export const TABELAS_OBRIGATORIAS = ["clientes", "atendimentos", "despesas", "configuracoes_sistema"];
@@ -26,14 +27,9 @@ const id = (v) => Number.isSafeInteger(v) && v > 0 && v <= ID_MAXIMO;
 const texto = (v) => typeof v === "string";
 const preenchido = (v) => typeof v === "string" && v.trim().length > 0;
 const textoOuNulo = (v) => v === null || typeof v === "string";
-const DIAS_NO_MES = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-const bissexto = (a) => (a % 4 === 0 && a % 100 !== 0) || a % 400 === 0;
-/** Data que existe no calendário, em AAAA-MM-DD (o que os campos de data das telas gravam). "2026-02-31" e "0000-00-00" não. */
-const data = (v) => {
-  const m = typeof v === "string" && /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); if (!m) return false;
-  const mes = +m[2], dia = +m[3];
-  return mes >= 1 && mes <= 12 && dia >= 1 && dia <= (mes === 2 && bissexto(+m[1]) ? 29 : DIAS_NO_MES[mes - 1]);
-};
+/** Data que existe no calendário, em AAAA-MM-DD (o que os campos de data das telas gravam). "2026-02-31" e "0000-00-00" não.
+ *  11.4: a regra mora em datas.js (fonte única, a mesma usada antes de gravar); o comportamento é idêntico ao da 11.3. */
+const data = dataValida;
 const dataOuNulo = (v) => v === null || data(v);
 const hora = (v) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 const centavos = (v) => Number.isSafeInteger(v) && v >= 0;

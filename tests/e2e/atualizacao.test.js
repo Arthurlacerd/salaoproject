@@ -6,6 +6,8 @@
 // 11.3.1: também 11.3.0 → atual (a versão em produção). A tela só oferece "Voltar para esta" a versões permitidas: as
 // bloqueadas (11.1/11.2) aparecem com o motivo e sem botão; o retorno para a 11.3.0 é feito e desfeito PELA TELA.
 // 11.3.2: também 11.3.1 → atual e o retorno atual → 11.3.1; a versão anterior lê as cópias com o campo novo "bytes".
+// 11.4: também 11.3.2 → atual. O arquivo "ainda antigo" da publicação parcial precisa ser DIFERENTE entre as duas versões
+// (antes era sempre manutencao.js, que a 11.4 não alterou): usa manutencao.js quando ele mudou, senão o primeiro que mudou.
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -14,15 +16,22 @@ import path from "node:path";
 import { semNavegador, versaoAtual, versaoGit, refExiste, servidor, navegador, abrir, configurarAdmin, semear, estadoDados, caches, limpar, gravarSaida, VERSAO, RAIZ } from "./_ambiente.js";
 
 const PARTIDAS = [["11.1.0", process.env.SALAO_REF_ANTERIOR || "b8061f2adda083ff76476e10196960105a4b6813"], ["11.2.0", process.env.SALAO_REF_11_2 || "20218e20e782e241ad96b7912cccf0ef6b831bc8"],
-  ["11.3.0", process.env.SALAO_REF_11_3 || "1e7acea9166443238cfe6ddb31108c3661dcd35b"], ["11.3.1", process.env.SALAO_REF_11_3_1 || "f6fc328f7110ad23c450bff1270e7298bd3f3f5d"]];
+  ["11.3.0", process.env.SALAO_REF_11_3 || "1e7acea9166443238cfe6ddb31108c3661dcd35b"], ["11.3.1", process.env.SALAO_REF_11_3_1 || "f6fc328f7110ad23c450bff1270e7298bd3f3f5d"],
+  ["11.3.2", process.env.SALAO_REF_11_3_2 || "b67c23d8bff9a68f48270280525a6cdf69fb7f74"]]; // 11.4: também 11.3.2 → atual e o retorno atual → 11.3.2
 const CACHE = (v) => "salao-static-v" + v;
 const cmpV = (a, b) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
 const DADOS_PRESERVADOS = ["clientes", "atendimentos", "pagamentos", "despesas", "usuarios", "servicos", "cliente", "atendimento", "schema", "migracoes"];
 const medidas = {};
+/** Um arquivo do app (lista de cache da versão atual, menos versao.js) que difere entre as duas versões. */
+function arquivoQueMudou(dAnt, dAtual) {
+  const lista = Object.keys(JSON.parse(readFileSync(path.join(dAtual, "js/versao.js"), "utf8").match(/SALAO_VERSAO\s*=\s*(\{[\s\S]*\})\s*;?\s*$/)[1]).integridade).filter((f) => f !== "js/versao.js");
+  const muda = (f) => { try { return !readFileSync(path.join(dAnt, f)).equals(readFileSync(path.join(dAtual, f))); } catch (_) { return false; } };
+  return muda("js/data/manutencao.js") ? "js/data/manutencao.js" : lista.find(muda);
+}
 after(() => gravarSaida("medidas-atualizacao.json", medidas));
 
 for (const [ANTERIOR, REF] of PARTIDAS) describe(`atualização ${ANTERIOR} → ${VERSAO}`, () => {
-  let dAnt, dAtual, srv, nav, ctx, page, e0;
+  let dAnt, dAtual, srv, nav, ctx, page, e0, VELHO;
   before(async () => {
     if (semNavegador) return; dAnt = versaoGit(REF); if (!dAnt) return; dAtual = versaoAtual();
     srv = await servidor(dAnt); nav = await navegador(); ctx = await nav.newContext(); page = await ctx.newPage();
@@ -49,15 +58,16 @@ for (const [ANTERIOR, REF] of PARTIDAS) describe(`atualização ${ANTERIOR} → 
   });
 
   T(`publicação parcial / CDN desatualizada: a ${VERSAO} é RECUSADA inteira e a ${ANTERIOR} continua funcionando`, async () => {
-    srv.publicar(dAtual); srv.sobrepor("js/data/manutencao.js", readFileSync(path.join(dAnt, "js/data/manutencao.js"))); // um arquivo ainda antigo
+    VELHO = arquivoQueMudou(dAnt, dAtual);
+    srv.publicar(dAtual); srv.sobrepor(VELHO, readFileSync(path.join(dAnt, VELHO))); // um arquivo ainda antigo
     assert.equal(await atualizarSW(), "redundant");
-    const erro = JSON.parse(await meta("erro-instalacao")); assert.equal(erro.versao, VERSAO); assert.match(erro.erro, /manutencao\.js não confere/);
+    const erro = JSON.parse(await meta("erro-instalacao")); assert.equal(erro.versao, VERSAO); assert.match(erro.erro, new RegExp(VELHO.split("/").pop().replace(/\./g, "\\.") + " não confere"));
     assert.deepEqual(await caches(page), ["salao-meta", CACHE(ANTERIOR)], `nenhum cache parcial da ${VERSAO}`);
     await recarregar(); assert.equal(await versao(), ANTERIOR); assert.deepEqual(semCopias(await estadoDados(page)), semCopias(e0));
   });
 
   T("versao.js de outra versão (publicação em andamento) nunca mistura versões", async () => {
-    srv.sobrepor("js/data/manutencao.js", null); srv.sobrepor("js/versao.js", readFileSync(path.join(dAnt, "js/versao.js")));
+    srv.sobrepor(VELHO, null); srv.sobrepor("js/versao.js", readFileSync(path.join(dAnt, "js/versao.js")));
     // o navegador não vê mudança (sw.js e versao.js iguais aos em uso) ou o SW recusa por integridade — nunca instala mistura
     assert.ok(["redundant", "nada"].includes(await atualizarSW()));
     assert.ok(!(await caches(page)).includes(CACHE(VERSAO)));

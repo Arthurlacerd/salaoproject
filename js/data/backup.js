@@ -3,6 +3,7 @@ import { exigir } from "./permissoes.js";
 import { FORMATO, VERSAO_FORMATO, canonico, sha256 } from "./formatos_backup.js";
 import { analisarTexto, analisarDoc, AVISO_INCONSISTENTE, LIMITE_BYTES } from "./validacao_backup.js";
 import { bytesUtf8 } from "./tamanho_backup.js";
+import { paraInterna, validarData } from "./datas.js";
 // 11.3: formato e checksum em formatos_backup.js; análise em validacao_backup.js; restauração segura em restauracao.js.
 export { FORMATO, VERSAO_FORMATO, canonico, sha256 };
 export const LIMITE = LIMITE_BYTES;
@@ -24,12 +25,23 @@ export function nomeArquivo({ prefixo = "salao-gestao-backup", inconsistente = f
  *  A validação do conteúdo não bloqueia mais (D3): um estado inconsistente continua exportável para recuperação/análise,
  *  mas o arquivo é MARCADO (estado_dados/aviso no cabeçalho, fora do checksum) e a restauração normal o recusa.
  *  Devolve { texto, rel (análise do conteúdo), consistente }. */
+/** 11.4: campos de data que a revisão de integridade sabe tratar (os demais problemas são só informados). */
+export const CAMPOS_DATA = { clientes: "data_nascimento", atendimentos: "data", pagamentos: "data", despesas: "data" };
+export const ehProblemaDeData = (p) => p.codigo === "CAMPO_INVALIDO" && CAMPOS_DATA[p.tabela] === p.campo;
+const CHAVE_INTEGRIDADE = "salao_integridade";
+/** Guarda neste aparelho o último resultado da conferência (só contagens e horário; nenhum dado pessoal). */
+export function registrarIntegridade(rel) {
+  try { const datas = rel.problemas.filter(ehProblemaDeData).length; localStorage.setItem(CHAVE_INTEGRIDADE, JSON.stringify({ quando: agora(), consistente: !!rel.ok, datas, outros: rel.problemas.length - datas })); } catch (_) {}
+}
+export function integridadeConhecida() { try { return JSON.parse(localStorage.getItem(CHAVE_INTEGRIDADE) || "null"); } catch (_) { return null; } }
+/** Última cópia local restaurável (sem a marca de inconsistente), ou null. */
+export async function ultimaCopiaRestauravel() { return (await snapshots()).find((s) => !s.inconsistente) || null; }
 export async function criarValidado(opts) {
   const doc = await montar(opts), texto = JSON.stringify(doc), lido = JSON.parse(texto);
   if ((await sha256(canonico(lido.tabelas))) !== lido.sha256) throw new Error("A cópia gerada não confere (checksum). Nada foi gravado.");
   for (const [t, store] of [["clientes", "clientes"], ["atendimentos", "atendimentos"], ["pagamentos", "pagamentos"], ["despesas", "despesas"], ["servicos", "servicos"]])
     if ((lido.tabelas[t] || []).length !== (await ler(store)).length) throw new Error(`Os dados mudaram enquanto a cópia era gerada (${t}). Tente de novo.`);
-  const rel = await analisarDoc(lido, { finalidade: "copia" });
+  const rel = await analisarDoc(lido, { finalidade: "copia" }); registrarIntegridade(rel); // 11.4: o resultado fica visível em Dados e no Diagnóstico
   if (rel.ok) return { texto, rel, consistente: true };
   return { texto: JSON.stringify({ ...doc, estado_dados: "inconsistente", aviso: AVISO_INCONSISTENTE }), rel, consistente: false };
 }
@@ -54,19 +66,27 @@ export async function comparar(rel) { // conflitos/atenção antes de substituir
 // Ficam no próprio IndexedDB: protegem contra erro de operação/atualização, NÃO contra limpeza dos dados do site.
 // A proteção principal continua sendo o arquivo .salaobackup baixado (nunca é afetado por esta política).
 export const RETENCAO = { maximo: 8, minimo: 2, bytes: 40 * 1024 * 1024, protegidos: ["pre_atualizacao", "pre_migracao", "pre_importacao", "pre_retorno_versao"] };
-/** Função pura: recebe [{id, motivo, tamanho}] e devolve os ids a APAGAR.
+/** Função pura: recebe [{id, motivo, tamanho, inconsistente?}] e devolve os ids a APAGAR.
  *  Mantém as `maximo` mais recentes + a mais recente de cada motivo protegido; depois, se o total passar de `bytes`,
- *  apaga as mais antigas (nunca a mais recente de todas e nunca abaixo de `minimo`). */
+ *  apaga as mais antigas (nunca a mais recente de todas e nunca abaixo de `minimo`).
+ *  11.4: a ÚLTIMA cópia CONSISTENTE (sem "inconsistente") nunca é apagada — nem pela quantidade, nem pelo tamanho —,
+ *  para que sempre reste uma cópia restaurável quando as cópias novas saem de um estado inconsistente. As cópias
+ *  inconsistentes seguem a política de antes. Quando todas são consistentes, o resultado é idêntico ao da 11.3. */
 export function politicaRetencao(lista, r = RETENCAO) {
   const ord = [...lista].sort((a, b) => b.id - a.id), manter = new Set(ord.slice(0, r.maximo).map((b) => b.id));
   for (const m of r.protegidos) { const b = ord.find((x) => x.motivo === m); if (b) manter.add(b.id); }
+  const restauravel = ord.find((x) => !x.inconsistente); if (restauravel) manter.add(restauravel.id);
   let mantidos = ord.filter((b) => manter.has(b.id)), total = mantidos.reduce((s, b) => s + (b.tamanho || 0), 0);
-  while (total > r.bytes && mantidos.length > r.minimo) { const b = mantidos.pop(); manter.delete(b.id); total -= b.tamanho || 0; }
+  while (total > r.bytes && mantidos.length > r.minimo) {
+    let i = mantidos.length - 1; while (i > 0 && restauravel && mantidos[i].id === restauravel.id) i--; // pula a última consistente
+    if (i <= 0) break; // nunca a mais recente de todas
+    const [b] = mantidos.splice(i, 1); manter.delete(b.id); total -= b.tamanho || 0;
+  }
   return ord.filter((b) => !manter.has(b.id)).map((b) => b.id);
 }
 export async function snapshot(motivo, extra = {}) {
   const { texto, consistente } = await criarValidado(); const reg = { criado_em: agora(), motivo, tamanho: texto.length, bytes: bytesUtf8(texto), texto, ...(consistente ? {} : { inconsistente: true }), ...extra };
-  const id = await transacao(["backups"], "readwrite", async (t) => { const id = await t.backups.adicionar(reg); const todos = await t.backups.todos(); for (const x of politicaRetencao(todos.map(({ id, motivo, tamanho }) => ({ id, motivo, tamanho: tamanho || 0 })))) if (x !== id) await t.backups.apagar(x); return id; });
+  const id = await transacao(["backups"], "readwrite", async (t) => { const id = await t.backups.adicionar(reg); const todos = await t.backups.todos(); for (const x of politicaRetencao(todos.map(({ id, motivo, tamanho, inconsistente }) => ({ id, motivo, tamanho: tamanho || 0, inconsistente: !!inconsistente })))) if (x !== id) await t.backups.apagar(x); return id; });
   const gravado = (await ler("backups")).find((b) => b.id === id); // confirma que foi gravado
   if (!gravado || gravado.texto !== texto) throw new Error("Não foi possível confirmar a gravação do backup automático.");
   return { ...reg, id };
@@ -104,7 +124,7 @@ export async function analisarCSV(texto) {
     r.linhas++; const nome = (l[iN] || "").trim(), tel = (l[iT] || "").trim(); let nasc = iD >= 0 ? (l[iD] || "").trim() : ""; const obs = iO >= 0 ? (l[iO] || "").trim().slice(0, 2000) : "";
     const it = { linha: k + 2, nome, telefone: tel, data_nascimento: null, observacoes: obs }; let motivo = "";
     if (!nome || nome.length > 120) motivo = "nome ausente ou longo demais"; else if (dig(tel).length < 8) motivo = "telefone ausente ou inválido";
-    if (nasc && !motivo) { const m = nasc.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if (m) nasc = `${m[3]}-${m[2]}-${m[1]}`; const d = new Date(nasc + "T00:00:00"); if (!/^\d{4}-\d{2}-\d{2}$/.test(nasc) || Number.isNaN(+d) || d.toISOString().slice(0, 10) !== nasc) motivo = "data de nascimento inválida"; else it.data_nascimento = nasc; }
+    if (nasc && !motivo) { const interna = paraInterna(nasc); if (!interna || validarData(interna, "nascimento")) motivo = "data de nascimento inválida"; else it.data_nascimento = interna; } // 11.4: sem fuso (datas.js)
     if (motivo) { it.motivo = motivo; r.invalidos.push(it); return; }
     const d = dig(tel); if (existentes.has(d)) { it.motivo = "telefone já cadastrado"; r.duplicados.push(it); return; }
     if (vistos.has(d)) { it.motivo = "telefone repetido no arquivo"; r.duplicados.push(it); return; }
@@ -114,6 +134,7 @@ export async function analisarCSV(texto) {
 }
 export async function importarClientes(validos) {
   exigir("clientes.gravar");
+  for (const v of validos) if (v.data_nascimento != null && validarData(v.data_nascimento, "nascimento")) throw new Error(`Data de nascimento inválida na linha ${v.linha}: nada foi importado.`); // 11.4: confere de novo antes de gravar
   return transacao(["clientes", "auditoria"], "readwrite", async (t) => { for (const v of validos) { const id = await t.clientes.adicionar({ ...v, preferencias: "", criado_em: agora(), atualizado_em: agora() }); await auditar(t, "criacao", "cliente", id, `Cliente importada de CSV: ${v.nome}`); } return validos.length; });
 }
 export async function diagnostico() {

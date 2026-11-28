@@ -1,3 +1,4 @@
+import { dataValida } from "../data/datas.js";
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 export const reais = (c) => "R$ " + ((c || 0) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const moeda = (c) => `<span class="money">${reais(c)}</span>`;
@@ -40,7 +41,7 @@ import { ic, tile } from "./icones.js";
 function modal({ titulo, corpo = "", ok = "Confirmar", cancelar = "Cancelar", perigo = false, icone, campo = null }) {
   return new Promise((res) => {
     const antes = document.activeElement, scrim = document.createElement("div"); scrim.className = "modal-scrim";
-    scrim.innerHTML = `<div class="modal${perigo ? " perigo" : ""}" role="alertdialog" aria-modal="true" aria-labelledby="md-t"><div class="modal-head">${tile(icone || (perigo ? "alert" : "info"), perigo ? "rose" : "wine")}<h2 id="md-t">${esc(titulo)}</h2></div>${corpo ? `<p>${esc(corpo)}</p>` : ""}${campo ? `<label class="field">${esc(campo.rotulo)}<input id="md-campo" type="${campo.tipo || "text"}" autocomplete="off" ${campo.minlength ? `minlength="${campo.minlength}"` : ""}></label>` : ""}<div class="modal-actions"><button type="button" class="button button-light" data-no>${esc(cancelar)}</button><button type="button" class="button${perigo ? " button-dark" : ""}" data-ok>${esc(ok)}</button></div></div>`;
+    scrim.innerHTML = `<div class="modal${perigo ? " perigo" : ""}" role="alertdialog" aria-modal="true" aria-labelledby="md-t"><div class="modal-head">${tile(icone || (perigo ? "alert" : "info"), perigo ? "rose" : "wine")}<h2 id="md-t">${esc(titulo)}</h2></div>${corpo ? `<p>${esc(corpo)}</p>` : ""}${campo ? `<label class="field">${esc(campo.rotulo)}<input id="md-campo" type="${campo.tipo || "text"}" autocomplete="off" ${campo.minlength ? `minlength="${campo.minlength}"` : ""}${campo.valor != null ? ` value="${esc(campo.valor)}"` : ""}${campo.min ? ` min="${esc(campo.min)}"` : ""}${campo.max ? ` max="${esc(campo.max)}"` : ""}></label>` : ""}<div class="modal-actions"><button type="button" class="button button-light" data-no>${esc(cancelar)}</button><button type="button" class="button${perigo ? " button-dark" : ""}" data-ok>${esc(ok)}</button></div></div>`;
     const fim = (v) => { scrim.remove(); document.removeEventListener("keydown", tecla, true); antes && antes.focus && antes.focus(); res(v); };
     const valor = () => (campo ? scrim.querySelector("#md-campo").value : true);
     const tecla = (e) => { if (e.key === "Escape") { e.preventDefault(); fim(campo ? null : false); } else if (e.key === "Enter" && !e.target.closest("[data-no]")) { e.preventDefault(); fim(valor()); } else if (e.key === "Tab") { const f = [...scrim.querySelectorAll("input,button")]; const i = f.indexOf(document.activeElement); e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus(); } };
@@ -51,7 +52,7 @@ function modal({ titulo, corpo = "", ok = "Confirmar", cancelar = "Cancelar", pe
 /** Confirmação (Promise<boolean>). Ações destrutivas ganham destaque. */
 export function confirmar(msg, o = {}) { const perigo = o.perigo ?? /excluir|cancelar este|apagar|substituir|remover/i.test(msg); return modal({ titulo: o.titulo || (perigo ? "Atenção" : "Confirmar"), corpo: msg, perigo, ok: o.ok || (perigo ? "Sim, continuar" : "Confirmar"), icone: o.icone }); }
 /** Pergunta com campo (Promise<string|null>). */
-export function pedir(titulo, o = {}) { return modal({ titulo, corpo: o.corpo || "", ok: o.ok || "Salvar", icone: o.icone || "key", campo: { rotulo: o.rotulo || "Valor", tipo: o.tipo || "text", minlength: o.minlength } }); }
+export function pedir(titulo, o = {}) { return modal({ titulo, corpo: o.corpo || "", ok: o.ok || "Salvar", icone: o.icone || "key", campo: { rotulo: o.rotulo || "Valor", tipo: o.tipo || "text", minlength: o.minlength, valor: o.valor, min: o.min, max: o.max } }); } // 11.4: valor inicial e limites opcionais
 export const esqueleto = () => '<div class="skeleton" aria-busy="true" aria-label="Carregando"><i></i><i></i><i></i></div>';
 export function chartAttr(o) { return esc(JSON.stringify(o)); }
 export function periodo(chave, de, ate) {
@@ -63,3 +64,23 @@ export function periodo(chave, de, ate) {
   return [i, f];
 }
 export const PERIODOS = [["hoje", "Hoje"], ["7dias", "7 dias"], ["30dias", "30 dias"], ["mes", "Este mês"], ["mes_anterior", "Mês anterior"]];
+
+// 11.4: leitura TIPADA dos parâmetros da URL (a parte depois de "#/rota?"). Cada rota lê seus parâmetros uma vez, por
+// estas regras; valor fora do tipo vira o padrão. Os valores continuam sendo escapados onde entram no HTML.
+export const PARAM = {
+  enumerado: (lista, padrao = "") => (v) => (lista.includes(v) ? v : padrao),
+  numeroEm: (lista, padrao = 0) => (v) => (/^\d{1,6}$/.test(v || "") && lista.includes(+v) ? +v : padrao),
+  data: (padrao = "") => (v) => (dataValida(v) ? v : typeof padrao === "function" ? padrao() : padrao), // regra única de datas.js
+  hora: (padrao = "") => (v) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(v || "") ? v : padrao),
+  id: () => (v) => (/^[1-9]\d{0,9}$/.test(v || "") && +v <= 2147483647 ? +v : 0), // 0 = nenhum
+  inteiro: (min, max, padrao = min) => (v) => (/^\d{1,9}$/.test(v || "") && +v >= min && +v <= max ? +v : padrao),
+  texto: (max) => (v) => String(v ?? "").trim().slice(0, max),
+};
+export function lerParametros(q, regras) { const o = {}; for (const [k, ler] of Object.entries(regras)) o[k] = ler(q.get(k)); return o; }
+/** Período do painel/financeiro: p ∈ PERIODOS ou "personalizado" (só com de ≤ ate, datas válidas); senão, o padrão. */
+export function parametrosPeriodo(q, padrao) {
+  const r = lerParametros(q, { p: PARAM.enumerado([...PERIODOS.map(([k]) => k), "personalizado"], padrao), de: PARAM.data(), ate: PARAM.data() });
+  if (r.p === "personalizado" && (!r.de || !r.ate || r.de > r.ate)) r.p = padrao;
+  if (r.p !== "personalizado") { r.de = ""; r.ate = ""; }
+  return r;
+}

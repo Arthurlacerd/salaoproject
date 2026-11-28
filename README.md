@@ -31,6 +31,7 @@ docs/               BUILD.md, PWA_UPDATE_PROCESS.md, CHANGELOG_*.md
 | **Atualizar (usuário)** | aviso "Nova versão" ou Manutenção › Verificar atualização › **Atualizar agora** (faz backup antes) |
 | **Voltar de versão** | Manutenção › Versões disponíveis › Voltar para esta (só versões compatíveis com o banco atual e a partir da 11.3.0) |
 | **Restaurar um backup** | Dados e backup › Importar › Verificar arquivo (com login de administrador; se o backup traz usuários, informe um administrador do backup) |
+| **Conferir/corrigir dados com data inválida** | Dados e backup › aviso de inconsistência › Revisar registros (ou Diagnóstico › Integridade dos dados), como administrador; nada é corrigido sem confirmação |
 | **Desfazer uma restauração** | Dados e backup › Desfazer a última restauração (ou o link na tela de login, enquanto ninguém entrou) |
 | **Recuperar uma instalação quebrada** | Diagnóstico; ou o botão **Abrir a versão atual**; ou o endereço com `?recuperar=1` (`docs/PWA_UPDATE_PROCESS.md › 4`) |
 

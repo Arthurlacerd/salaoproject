@@ -42,6 +42,11 @@ export async function transacao(stores, modo, fn, opcoes = {}) {
 }
 export const ler = (store) => transacao([store], "readonly", (t) => t[store].todos());
 export const obter = (store, id) => transacao([store], "readonly", (t) => t[store].get(id));
+// 11.4 (só leitura, sem mudar a estrutura): contagem sem ler a tabela inteira e leitura pelos índices que já existem.
+export const contar = (store) => transacao([store], "readonly", (t) => t[store].contar());
+export const lerPorIndice = (store, indice, chave) => transacao([store], "readonly", (t) => t[store].porIndice(indice, chave));
+/** Chave aceita pelo IndexedDB nas buscas por igualdade usadas aqui (número válido ou texto). */
+export const chaveSimples = (k) => (typeof k === "number" && !Number.isNaN(k)) || typeof k === "string";
 
 export function agora() { const d = new Date(), p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 export function hoje() { return agora().slice(0, 10); }

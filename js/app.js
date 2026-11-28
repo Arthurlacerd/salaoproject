@@ -3,7 +3,7 @@ import * as Man from "./data/manutencao.js";
 import { pode } from "./data/permissoes.js";
 import * as Usr from "./data/usuarios.js";
 import * as Bkp from "./data/backup.js";
-import { ler } from "./data/database.js";
+import { contar } from "./data/database.js";
 import { esc, toast, esqueleto } from "./ui/util.js";
 import { ic, tile } from "./ui/icones.js";
 import { montar, rede } from "./ui/shell.js";
@@ -12,7 +12,7 @@ import * as Rst from "./data/restauracao.js";
 import { marcarInstalacao } from "./data/diagnostico.js";
 
 const raiz = () => document.body;
-const PERM = { painel: "financeiro.ler", agenda: "agenda.ler", atendimento: "agenda.ler", clientes: "clientes.ler", cliente: "clientes.ler", servicos: "servicos.ler", servico: "servicos.gravar", financeiro: "financeiro.ler", despesas: "despesas.gravar", dados: "dados.gerir", privacidade: "dados.gerir", usuarios: "usuarios.gerir", config: "config.gerir", manutencao: "dados.gerir", desfazer: "dados.gerir", auditoria: "config.gerir" };
+const PERM = { painel: "financeiro.ler", agenda: "agenda.ler", atendimento: "agenda.ler", clientes: "clientes.ler", cliente: "clientes.ler", servicos: "servicos.ler", servico: "servicos.gravar", financeiro: "financeiro.ler", despesas: "despesas.gravar", dados: "dados.gerir", privacidade: "dados.gerir", usuarios: "usuarios.gerir", config: "config.gerir", manutencao: "dados.gerir", desfazer: "dados.gerir", auditoria: "config.gerir", integridade: "dados.gerir" };
 let relogio = null;
 
 function tela(titulo, corpo) {
@@ -78,10 +78,10 @@ async function rotear() {
   catch (e) { vista.innerHTML = `<div class="alert erro">${esc(e.message)}</div>`; console.error(e); }
   window.scrollTo(0, 0); rede(); avisos(); mostrarAvisoAtualizacao(); await marcarContagem();
 }
-async function marcarContagem() { try { Bkp.marcar((await ler("clientes")).length); } catch (_) {} }
+async function marcarContagem() { try { Bkp.marcar(await contar("clientes")); } catch (_) {} } // 11.4: count() em vez de ler a tabela
 async function avisos() {
   const b = document.getElementById("aviso-backup"); if (!b || !pode("dados.gerir")) return;
-  const d = localStorage.getItem("salao_ultimo_download"), n = (await ler("clientes")).length + (await ler("atendimentos")).length;
+  const d = localStorage.getItem("salao_ultimo_download"), n = (await contar("clientes")) + (await contar("atendimentos")); // 11.4: count()
   const dias = d ? (Date.now() - new Date(d.replace(" ", "T"))) / 864e5 : Infinity;
   if (n && dias > 7) { b.hidden = false; b.innerHTML = `${d ? `Último backup baixado há ${Math.floor(dias)} dias.` : "Você ainda não baixou nenhum backup."} <a class="text-link" href="#/dados">Fazer backup</a>`; } else b.hidden = true;
 }
