@@ -1,6 +1,6 @@
-import { transacao, ler, agora, hoje, norm, auditar } from "./database.js";
+import { transacao, ler, agora, hoje, norm, auditar, sessao } from "./database.js";
 import { exigir } from "./permissoes.js";
-import { validarData } from "./datas.js";
+import { validarData, dataValida } from "./datas.js";
 const dig = (t) => String(t || "").replace(/\D/g, "");
 export async function listar({ q = "", inativasDias = 0 } = {}) {
   exigir("clientes.ler");
@@ -50,6 +50,18 @@ export async function salvar(d, { permitirDuplicada = false } = {}) {
     const reg = { nome: d.nome.trim(), telefone: d.telefone.trim(), data_nascimento: d.data_nascimento || null, observacoes: (d.observacoes || "").slice(0, 2000), preferencias: (d.preferencias || "").slice(0, 500), atualizado_em: agora() };
     if (d.id) { const ant = await t.clientes.get(d.id); await t.clientes.salvar({ ...ant, ...reg }); await auditar(t, "edicao", "cliente", d.id, `Cliente editada: ${reg.nome}`); return d.id; }
     const id = await t.clientes.adicionar({ ...reg, criado_em: agora() }); await auditar(t, "criacao", "cliente", id, `Cliente cadastrada: ${reg.nome}`); return id;
+  });
+}
+/** 11.4: corrige (nova data) ou remove (null) uma data de nascimento gravada INVÁLIDA. Ação do administrador, com
+ *  auditoria. Só o campo data_nascimento muda; uma data já válida é recusada (use a edição normal da cliente). */
+export async function corrigirNascimento(id, nova) {
+  exigir("dados.gerir"); if (sessao.usuario?.perfil !== "admin") throw new Error("Só o administrador pode corrigir este dado.");
+  if (nova != null) { const ef = validarData(nova, "nascimento", { nome: "data de nascimento" }); if (ef) throw new Error(ef); }
+  return transacao(["clientes", "auditoria"], "readwrite", async (t) => {
+    const c = await t.clientes.get(id); if (!c) throw new Error("Cliente não encontrada.");
+    if (c.data_nascimento == null || dataValida(c.data_nascimento)) throw new Error("A data de nascimento desta cliente não é inválida: use a edição normal.");
+    await t.clientes.salvar({ ...c, data_nascimento: nova ?? null });
+    await auditar(t, "correcao", "cliente", id, `Data de nascimento inválida ${nova == null ? "removida" : "corrigida"} pelo administrador`, "data_nascimento", c.data_nascimento, nova);
   });
 }
 export async function excluir(id) {

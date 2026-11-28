@@ -45,7 +45,9 @@ test("retenção SEM mudança: continua por \"tamanho\" (8 cópias, mínimo 2, 4
   assert.deepEqual(B.politicaRetencao(tres(12 * MB, 24 * MB)), [], "36 MB em tamanho: nada é apagado, mesmo com 72 MB em bytes");
   assert.deepEqual(B.politicaRetencao(tres(15 * MB, 15 * MB)), [1], "45 MB em tamanho: apaga a mais antiga, como antes");
   const src = readFileSync(arq("js/data/backup.js"), "utf8");
-  assert.ok(src.includes("politicaRetencao(todos.map(({ id, motivo, tamanho }) => ({ id, motivo, tamanho: tamanho || 0 })))"), "a retenção recebe só id, motivo e tamanho");
+  // 11.4 (mudança prevista na especificação): a retenção também recebe "inconsistente", para nunca apagar a última cópia
+  // consistente. O que este teste protege continua igual: o tamanho medido é "tamanho" (caracteres), não "bytes".
+  assert.ok(src.includes("politicaRetencao(todos.map(({ id, motivo, tamanho, inconsistente }) => ({ id, motivo, tamanho: tamanho || 0, inconsistente: !!inconsistente })))"), "a retenção recebe id, motivo, tamanho e inconsistente — nunca bytes");
   assert.ok(src.includes("tamanho: texto.length, bytes: bytesUtf8(texto)"), "a cópia nova grava os dois: tamanho (retenção) e bytes (avisos)");
 });
 

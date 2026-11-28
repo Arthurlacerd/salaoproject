@@ -2,7 +2,7 @@
 // Só lê: não altera dados, caches nem o service worker. O relatório NÃO contém dados pessoais: nada de clientes, telefones,
 // valores, hashes de senha, contagens de registros ou conteúdo de backups — apenas informações técnicas.
 import { INFO, VERSAO_BANCO, VERSAO_SCHEMA, ler, config, agora } from "./database.js";
-import { snapshots } from "./backup.js";
+import { snapshots, integridadeConhecida, ultimaCopiaRestauravel } from "./backup.js";
 import { avaliarTamanho, emMB, LIMITE_RESTAURACAO, tamanhoCopia } from "./tamanho_backup.js";
 
 // ---------- instalação: o que o navegador informou (beforeinstallprompt / escolha / appinstalled) ----------
@@ -160,6 +160,19 @@ async function verificarTamanhoBackup() {
   } catch (e) { return item("backup", T, "aviso", "Não foi possível medir o tamanho do backup: " + e.message); }
 }
 
+/** 11.4: último resultado conhecido da conferência de integridade (cópia do dia, backups e a tela de revisão).
+ *  Só contagens e horários: nenhum dado pessoal. A conferência completa é feita em "Integridade dos dados". */
+async function verificarIntegridade() {
+  const T = "Integridade dos dados";
+  try {
+    const st = integridadeConhecida(), ult = await ultimaCopiaRestauravel();
+    if (!st) return item("integridade", T, "ok", "Ainda não conferido neste aparelho. A conferência roda na cópia automática do dia e a cada backup gerado.");
+    if (st.consistente) return item("integridade", T, "ok", `Dados consistentes (conferido em ${st.quando}).`);
+    return item("integridade", T, "erro", `${st.datas} registro(s) com data inválida e ${st.outros} outro(s) problema(s) (conferido em ${st.quando}). Backups gerados agora saem marcados como INCONSISTENTE e não podem ser restaurados normalmente.`,
+      ult ? `Última cópia restaurável neste aparelho: ${ult.criado_em}.` : "Não há cópia restaurável neste aparelho.");
+  } catch (e) { return item("integridade", T, "aviso", "Não foi possível consultar a integridade: " + e.message); }
+}
+
 async function verificarPersistencia() {
   let persist = null, uso = null, quota = null; try { persist = await navigator.storage?.persisted?.(); const e = await navigator.storage?.estimate?.(); uso = e?.usage; quota = e?.quota; } catch (_) {}
   const mb = (n) => (n == null ? "?" : (n / 1048576).toFixed(1) + " MB"), espaco = uso != null ? ` · uso ${mb(uso)} de ${mb(quota)}` : "";
@@ -182,7 +195,7 @@ function verificarInstalacao(nav) {
 export async function executar() {
   const ctx = {}, nav = navegador(); let c = {}; try { c = await config(); } catch (_) {}
   const itens = [verificarVersao(c), await verificarHttps(), ...(await verificarManifest(ctx)), await verificarServiceWorker(ctx), await verificarCache(), await verificarOffline(),
-    await verificarBanco(c), await verificarTamanhoBackup(), await verificarPersistencia(), await verificarAtualizacao(ctx, c), await verificarFalha(), verificarInstalacao(nav)];
+    await verificarBanco(c), await verificarTamanhoBackup(), await verificarIntegridade(), await verificarPersistencia(), await verificarAtualizacao(ctx, c), await verificarFalha(), verificarInstalacao(nav)];
   return { itens, quando: agora(), versao: INFO.versao, banco: VERSAO_BANCO, schema: VERSAO_SCHEMA, nav, modo: modoExibicao(), online: navigator.onLine, identidade: ctx.identidade || "—", origem: location.origin, endereco: location.origin + location.pathname, instalacao: lerInstalacao() };
 }
 

@@ -1,6 +1,6 @@
-import { transacao, ler, agora, auditar, hoje } from "./database.js";
+import { transacao, ler, agora, auditar, hoje, sessao } from "./database.js";
 import { exigir } from "./permissoes.js";
-import { validarData } from "./datas.js";
+import { validarData, dataValida } from "./datas.js";
 export const FORMAS_DESP = ["Dinheiro", "Pix", "Débito", "Crédito", "Transferência", "Boleto", "Não informado"];
 export const CATEGORIAS_DESP = ["Produtos e materiais", "Aluguel", "Água e energia", "Internet e telefone", "Manutenção", "Marketing", "Taxas e tarifas", "Equipamentos", "Outras despesas"];
 export function statusPagamento(total, recebido, estorno, atual) {
@@ -33,6 +33,19 @@ export async function registrarPagamento(aid, tipo, valor, forma, data, obs) {
 export async function receberSaldo(aid) {
   exigir("pagamentos.gravar");
   return transacao(["atendimentos", "pagamentos", "auditoria"], "readwrite", async (t) => { const a = await t.atendimentos.get(aid); const s = a.valor_centavos - (a.valor_recebido_centavos || 0); if (s > 0) await registrar(t, aid, "recebimento", s, a.forma_pagamento === "A combinar" ? "Outro" : a.forma_pagamento, hoje(), "Saldo recebido"); });
+}
+/** 11.4: corrige SOMENTE a data de um lançamento (recebimento ou estorno) cuja data gravada é inválida. Ação do
+ *  administrador, com auditoria (valor anterior e novo). Valor, tipo, forma e atendimento nunca mudam. Lançamento com
+ *  data válida é recusado: lançamentos financeiros válidos continuam sem edição. */
+export async function corrigirDataLancamento(id, nova) {
+  exigir("dados.gerir"); if (sessao.usuario?.perfil !== "admin") throw new Error("Só o administrador pode corrigir lançamentos.");
+  const ef = validarData(nova, "operacao", { nome: "data do lançamento" }); if (ef) throw new Error(ef);
+  return transacao(["pagamentos", "auditoria"], "readwrite", async (t) => {
+    const p = await t.pagamentos.get(id); if (!p) throw new Error("Lançamento não encontrado.");
+    if (dataValida(p.data)) throw new Error("Este lançamento já tem uma data válida: a correção só vale para datas inválidas.");
+    await t.pagamentos.salvar({ ...p, data: nova });
+    await auditar(t, "correcao", "pagamento", id, `Data inválida do ${p.tipo === "estorno" ? "estorno" : "recebimento"} de ${(p.valor_centavos / 100).toFixed(2)} (atendimento ${p.atendimento_id}) corrigida pelo administrador`, "data", p.data, nova);
+  });
 }
 export async function pagamentosDe(aid) { exigir("agenda.ler"); return (await ler("pagamentos")).filter((p) => p.atendimento_id === aid).sort((a, b) => a.id - b.id); }
 // ---- despesas ----

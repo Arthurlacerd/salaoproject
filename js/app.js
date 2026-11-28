@@ -12,7 +12,7 @@ import * as Rst from "./data/restauracao.js";
 import { marcarInstalacao } from "./data/diagnostico.js";
 
 const raiz = () => document.body;
-const PERM = { painel: "financeiro.ler", agenda: "agenda.ler", atendimento: "agenda.ler", clientes: "clientes.ler", cliente: "clientes.ler", servicos: "servicos.ler", servico: "servicos.gravar", financeiro: "financeiro.ler", despesas: "despesas.gravar", dados: "dados.gerir", privacidade: "dados.gerir", usuarios: "usuarios.gerir", config: "config.gerir", manutencao: "dados.gerir", desfazer: "dados.gerir", auditoria: "config.gerir" };
+const PERM = { painel: "financeiro.ler", agenda: "agenda.ler", atendimento: "agenda.ler", clientes: "clientes.ler", cliente: "clientes.ler", servicos: "servicos.ler", servico: "servicos.gravar", financeiro: "financeiro.ler", despesas: "despesas.gravar", dados: "dados.gerir", privacidade: "dados.gerir", usuarios: "usuarios.gerir", config: "config.gerir", manutencao: "dados.gerir", desfazer: "dados.gerir", auditoria: "config.gerir", integridade: "dados.gerir" };
 let relogio = null;
 
 function tela(titulo, corpo) {

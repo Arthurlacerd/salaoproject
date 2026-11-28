@@ -15,6 +15,7 @@ import { acoesRapidas, qaHtml } from "./shell.js";
 import { pedir } from "./util.js";
 import * as Man from "../data/manutencao.js";
 import * as Diag from "../data/diagnostico.js";
+import * as Integ from "../data/integridade.js";
 import { INFO } from "../data/database.js";
 import { dataValida, faixa } from "../data/datas.js";
 
@@ -247,9 +248,16 @@ export function novaLeitura(el, status) { limparPrevia(el, status); const meu = 
 export const leituraDescartada = (err) => console.warn("Leitura substituída por uma escolha mais recente: resultado descartado.", err ?? "");
 /** 11.3.2: texto de uma cópia local; erro claro se ela não existe mais (ex.: apagada pela retenção com a lista aberta). */
 const textoDaCopia = async (id) => { const t = await Bkp.snapshotTexto(id); if (typeof t !== "string") throw new Error("essa cópia não existe mais neste aparelho (pode ter sido substituída por uma mais nova). Atualize a tela."); return t; };
+// 11.4: aviso FIXO de integridade em Dados. Faz parte da tela (não é aviso temporário): continua visível quando a tela é
+// redesenhada, até a conferência seguinte mostrar dados consistentes.
+function avisoIntegridade(snaps) {
+  const st = Bkp.integridadeConhecida(); if (!st || st.consistente) return "";
+  const ult = snaps.find((s) => !s.inconsistente), partes = [st.datas ? `${st.datas} registro(s) com data inválida` : "", st.outros ? `${st.outros} outro(s) problema(s)` : ""].filter(Boolean).join(" e ");
+  return `<div class="alert erro" role="alert" data-integridade="inconsistente"><div><strong>Os dados deste aparelho têm inconsistências</strong>${partes ? ` (${esc(partes)})` : ""} · conferido em ${esc(st.quando)}. Backups gerados agora saem marcados como <strong>INCONSISTENTE</strong> e não podem ser restaurados como um backup normal.${pode("dados.gerir") ? ` <a class="text-link" href="#/integridade">Revisar registros</a>` : ""}<br>${ult ? `Última cópia restaurável neste aparelho: <strong>${esc(ult.criado_em)}</strong> (${esc(rotuloCopia(ult))}); ela é mantida enquanto os dados estiverem inconsistentes.` : "Não há cópia restaurável neste aparelho."}</div></div>`;
+}
 rota(/^dados$/, async () => {
   const d = await Bkp.diagnostico();
-  const html = cab("SEUS DADOS, NO SEU DISPOSITIVO", "Dados e backup", "Nada é enviado para a internet. Você decide quando exportar, importar ou transferir.") +
+  const html = cab("SEUS DADOS, NO SEU DISPOSITIVO", "Dados e backup", "Nada é enviado para a internet. Você decide quando exportar, importar ou transferir.") + avisoIntegridade(d.snapshots) +
   `<div class="detail-grid"><section class="panel panel-pad"><h2>Exportar backup</h2><p class="muted">Gera um arquivo único (.salaobackup) com clientes, agenda, atendimentos, serviços, pagamentos, despesas, configurações, usuários e histórico.</p><dl class="facts"><div><dt>Hoje neste aparelho</dt><dd>${d.cont.clientes} cliente(s) · ${d.cont.atendimentos} atendimento(s) · ${d.cont.despesas} despesa(s)</dd></div><div><dt>Último backup baixado</dt><dd>${d.ultimoDownload || "nunca"}</dd></div></dl>${alertaTamanho(tamanhoCopia(d.snapshots[0]))}<button class="button" id="exportar">Exportar backup</button><p class="foot-note muted">O arquivo contém dados pessoais das clientes e hashes de senha dos usuários. Guarde em local seguro.</p></section>
   <section class="panel panel-pad"><h2>Importar dados</h2><p class="muted">Aceita .salaobackup / .json gerados por este aplicativo e .csv (lista de clientes). Você verá uma prévia e precisará confirmar. A compatibilidade com backups da versão 9.x (servidor) não foi verificada.</p><label class="field">Arquivo<input type="file" id="arq" accept=".salaobackup,.json,.csv,application/json,text/csv"></label><button class="button button-light" id="analisar">Verificar arquivo</button></section></div><div id="previa"></div>
   <section class="panel panel-pad"><h2>Transferir entre celular e PC</h2><ol class="plain-list"><li>No aparelho de origem: <strong>Exportar backup</strong>.</li><li>Envie o arquivo (e-mail para você mesmo, cabo, pen drive, mensageiro).</li><li>No outro: <strong>Dados e backup ${ic("right", 16)} Importar</strong> e confirme.</li></ol></section>
@@ -358,11 +366,51 @@ rota(/^instalar$/, async () => ({ html: cab("COMO UM APLICATIVO", "Instalar Sal�
 
 // ============================ DIAGNÓSTICO (11.1) — Configurações › Sistema › Diagnóstico ============================
 const DIAG = { ok: ["insight-positivo", "check", "badge-pg-pago", "OK"], aviso: ["insight-atencao", "alert", "badge-pg-pendente", "Atenção"], erro: ["insight-erro", "x", "badge-at-falta", "Falha"] };
+// ============================ INTEGRIDADE DOS DADOS (11.4) ============================
+// Revisão orientada ao administrador. Usa a mesma validação do backup. Nenhuma data é corrigida automaticamente:
+// atendimento e despesa abrem a edição já existente; aniversário e lançamento têm ação própria, sempre com confirmação.
+rota(/^integridade$/, async () => {
+  const r = await Integ.verificar(), snaps = await Bkp.snapshots(), ult = snaps.find((s) => !s.inconsistente), itens = new Map();
+  const valor = (v) => (v === null ? "(vazio)" : esc(typeof v === "string" ? v : JSON.stringify(v)));
+  const linha = (it) => {
+    const chave = `${it.tabela}:${it.id}`; itens.set(chave, it); let reg, ref = [], acao = "";
+    if (it.tabela === "pagamentos") { reg = `${it.tipo === "estorno" ? "Estorno" : "Recebimento"} de ${reais(it.valor_centavos)} · atendimento #${it.atendimento_id}${it.cliente ? " · " + esc(it.cliente) : ""}`;
+      ref = [`registrado no sistema em ${esc(it.criado_em || "não informado")}`, it.data_atendimento != null ? `data do atendimento: ${dataValida(it.data_atendimento) ? dataBR(it.data_atendimento) : esc(String(it.data_atendimento))}` : ""];
+      acao = `<button class="text-link" data-lanc="${esc(chave)}">Corrigir data</button>`; }
+    else if (it.tabela === "clientes") { reg = `Cliente ${esc(it.descricao || "")} · data de nascimento`; acao = `<button class="text-link" data-nasc="${esc(chave)}">Corrigir data</button> <button class="text-link" data-nasc-rem="${esc(chave)}">Remover data</button>`; }
+    else if (it.tabela === "atendimentos") { reg = `Atendimento #${it.id} · ${esc(it.descricao || "")}${it.cliente ? " · " + esc(it.cliente) : ""}`; acao = `<a class="text-link" href="#/atendimento/${+it.id}/editar">Abrir edição</a>`; }
+    else { reg = `Despesa #${it.id} · ${esc(it.descricao || "")} · ${reais(it.valor_centavos)}`; acao = `<a class="text-link" href="#/despesas?editar=${+it.id}">Abrir edição</a>`; }
+    if (!it.existe) acao = "";
+    if (it.sugestao) ref.push(`sugestão sem perda (troca de separador): ${dataBR(it.sugestao)} — só com confirmação`);
+    return `<tr data-invalido="${esc(chave)}"><td data-label="Registro">${reg}</td><td data-label="Valor gravado"><code>${valor(it.valor)}</code></td><td data-label="Referências">${ref.filter(Boolean).join("<br>") || "—"}</td><td class="row-actions">${acao}</td></tr>`;
+  };
+  const html = cab("DADOS E BACKUP", "Integridade dos dados", "Confere os dados deste aparelho com as mesmas regras do backup. Nada é corrigido sem a sua confirmação.", `<a class="button button-light" href="#/dados">${ic("left", 16)} Dados e backup</a>`) +
+    (r.consistente ? `<div class="alert sucesso" data-integridade="ok">Nenhum problema encontrado: backups gerados agora podem ser restaurados normalmente.</div>`
+      : `<div class="alert erro" data-integridade="inconsistente"><div><strong>${r.datas.length} registro(s) com data inválida${r.outros.length ? ` e ${r.outros.length} outro(s) problema(s)` : ""}.</strong> Enquanto existirem, os backups saem marcados como INCONSISTENTE. Datas inválidas são ambíguas: o aplicativo não escolhe uma data por você.</div></div>`) +
+    (r.datas.length ? `<section class="panel"><div class="table-wrap"><table class="responsive-table"><thead><tr><th>Registro</th><th>Valor gravado</th><th>Referências</th><th></th></tr></thead><tbody>${r.datas.map(linha).join("")}</tbody></table></div></section>` : "") +
+    (r.outros.length ? `<section class="panel panel-pad"><h2>Outros problemas</h2><p class="muted">Sem correção guiada nesta versão. Guarde o backup marcado como INCONSISTENTE e procure suporte.</p><ul class="plain-list">${r.outros.map((m) => `<li>${esc(m)}</li>`).join("")}</ul></section>` : "") +
+    `<section class="panel panel-pad"><h2>Cópia restaurável neste aparelho</h2><p data-copia-restauravel="${ult ? ult.id : ""}">${ult ? `Última cópia restaurável: <strong>${esc(ult.criado_em)}</strong> (${esc(rotuloCopia(ult))}). Ela não é apagada pela limpeza automática de cópias.` : "Não há cópia restaurável neste aparelho."}</p></section>
+    <div class="form-actions"><button class="button" type="button" id="int-again">${ic("refresh", 18)} Verificar novamente</button></div>`;
+  return { html, depois: (el, rec) => {
+    el.querySelector("#int-again").onclick = () => rec();
+    const corrigir = async (b, titulo, rotulo, tipo, aplicar, atual, nota = "") => {
+      const it = itens.get(b.dataset.lanc || b.dataset.nasc); const lim = faixa(tipo);
+      const nova = await pedir(titulo, { rotulo, tipo: "date", valor: it.sugestao || "", min: lim.min, max: lim.max, ok: "Continuar", corpo: nota }); if (!nova) return;
+      if (!(await confirmar(`Trocar a data gravada "${atual(it)}" por ${dataBR(nova)}? ${tipo === "operacao" ? "O valor e o tipo do lançamento não mudam. " : ""}A correção fica registrada na auditoria.`, { perigo: false, titulo: "Confirmar correção", ok: "Corrigir" }))) return;
+      try { await aplicar(+it.id, nova); toast("Data corrigida."); rec(); } catch (e) { toast(e.message, "erro"); } };
+    el.querySelectorAll("[data-lanc]").forEach((b) => (b.onclick = () => { const it = itens.get(b.dataset.lanc);
+      corrigir(b, "Corrigir data do lançamento", "Nova data do lançamento", "operacao", Fin.corrigirDataLancamento, (x) => String(x.valor), `Referências (não aplicadas automaticamente): registrado no sistema em ${it.criado_em || "não informado"}${it.data_atendimento != null ? `; data do atendimento: ${it.data_atendimento}` : ""}.`); }));
+    el.querySelectorAll("[data-nasc]").forEach((b) => (b.onclick = () => corrigir(b, "Corrigir data de nascimento", "Nova data de nascimento", "nascimento", Cli.corrigirNascimento, (x) => String(x.valor))));
+    el.querySelectorAll("[data-nasc-rem]").forEach((b) => (b.onclick = async () => { const it = itens.get(b.dataset.nascRem);
+      if (!(await confirmar(`Remover a data de nascimento inválida "${it.valor}" desta cliente? A remoção fica registrada na auditoria.`, { perigo: false, titulo: "Remover data", ok: "Remover" }))) return;
+      try { await Cli.corrigirNascimento(+it.id, null); toast("Data removida."); rec(); } catch (e) { toast(e.message, "erro"); } }));
+  } };
+});
 rota(/^diagnostico$/, async () => {
   const d = await Diag.executar(), nErro = d.itens.filter((i) => i.estado === "erro").length, nAviso = d.itens.filter((i) => i.estado === "aviso").length;
   const html = cab("CONFIGURAÇÕES › SISTEMA", "Diagnóstico", "Confere neste aparelho o que o Android precisa para instalar o Salão.gestão e usar sem internet. Só leitura: nada é alterado.", `<a class="button button-light" href="#/config">${ic("left", 16)} Configurações</a>`) +
   `<section class="panel diag"><div class="panel-heading"><h2>PWA</h2><span class="badge ${nErro ? "badge-at-falta" : nAviso ? "badge-pg-pendente" : "badge-pg-pago"}" id="d-resumo">${nErro ? nErro + " falha(s)" : nAviso ? nAviso + " aviso(s)" : "Tudo certo"}</span></div>
-   <ul class="insights diag-list">${d.itens.map((i) => `<li class="insight ${DIAG[i.estado][0]}" data-diag="${i.id}" data-estado="${i.estado}"><span aria-hidden="true">${ic(DIAG[i.estado][1], 16)}</span><div><strong>${esc(i.titulo)}</strong> <span class="badge ${DIAG[i.estado][2]}">${DIAG[i.estado][3]}</span><br>${esc(i.texto)}${i.detalhe ? `<br><small class="muted">${esc(i.detalhe)}</small>` : ""}</div></li>`).join("")}</ul></section>
+   <ul class="insights diag-list">${d.itens.map((i) => `<li class="insight ${DIAG[i.estado][0]}" data-diag="${i.id}" data-estado="${i.estado}"><span aria-hidden="true">${ic(DIAG[i.estado][1], 16)}</span><div><strong>${esc(i.titulo)}</strong> <span class="badge ${DIAG[i.estado][2]}">${DIAG[i.estado][3]}</span><br>${esc(i.texto)}${i.detalhe ? `<br><small class="muted">${esc(i.detalhe)}</small>` : ""}${i.id === "integridade" && i.estado !== "ok" ? `<br><a class="text-link" href="#/integridade">Revisar registros</a>` : ""}</div></li>`).join("")}</ul></section>
   <div class="form-actions"><button class="button" type="button" id="d-again">${ic("refresh", 18)} Verificar novamente</button><button class="button button-light" type="button" id="d-copy">${ic("list", 18)} Copiar relatório</button><a class="button button-light" href="#/instalar">${ic("download", 18)} Instalar app</a></div>
   <pre class="diag-relatorio" id="d-rel" hidden></pre>
   <div class="detail-grid"><section class="panel panel-pad diag"><h2>Ambiente</h2><dl class="facts"><div><dt>Versão</dt><dd>${esc(d.versao)}</dd></div><div><dt>Endereço</dt><dd>${esc(d.endereco)}</dd></div><div><dt>Identidade do app</dt><dd>${esc(d.identidade)}</dd></div><div><dt>Navegador</dt><dd>${esc(d.nav.nome)} · ${esc(d.nav.so)}</dd></div><div><dt>Modo</dt><dd>${d.modo === "browser" ? "Navegador" : "Aplicativo (" + esc(d.modo) + ")"} · ${d.online ? "online" : "offline"}</dd></div></dl></section>
