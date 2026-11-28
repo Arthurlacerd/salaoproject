@@ -87,8 +87,8 @@ globalThis.SALAO_VERSAO = {
     "js/data/zip.js": "46db4dd8cc3a7856c3d773c7957e0dca17a65940571438d89f95a6b550949ad3",
     "js/ui/icones.js": "e1db8ce43e2b0a1611735174945fd38d9ad47f6b7a7dbe3e7a19242128db399d",
     "js/ui/shell.js": "3b83e5a5a209d1a73422a356a0dd2109ce0ef0be65aa3abe9fe5b4e99ae64a59",
-    "js/ui/util.js": "bd7e6388c2649fe1116463c6edb8b71f09ff3bd2cd408b1b32b48cc6806f9b95",
-    "js/ui/views.js": "c3e72b83049d72287c4ba91e71de5e1250229413a78c8018b2891322b6226c91",
+    "js/ui/util.js": "e06f8b09d39b9f349cbbe92935364e91492007dcb37626d867fe8ac877357023",
+    "js/ui/views.js": "d471ea9e82fd218a967597183c66846da364f0cdd2cabf6fcb514f1cb04467be",
     "manifest.webmanifest": "4d3c7261f77eb7044c34be68fd3ae34cbd5edfa06e0e4fb651707acb8ae50674",
     "sw.js": "2d100c1c1796ace31a65e3c74ee11b6d38a4c503c6f25ec5bb829e7365a20d15"
   }

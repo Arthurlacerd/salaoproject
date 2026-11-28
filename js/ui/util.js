@@ -1,3 +1,4 @@
+import { dataValida } from "../data/datas.js";
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 export const reais = (c) => "R$ " + ((c || 0) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const moeda = (c) => `<span class="money">${reais(c)}</span>`;
@@ -63,3 +64,23 @@ export function periodo(chave, de, ate) {
   return [i, f];
 }
 export const PERIODOS = [["hoje", "Hoje"], ["7dias", "7 dias"], ["30dias", "30 dias"], ["mes", "Este mês"], ["mes_anterior", "Mês anterior"]];
+
+// 11.4: leitura TIPADA dos parâmetros da URL (a parte depois de "#/rota?"). Cada rota lê seus parâmetros uma vez, por
+// estas regras; valor fora do tipo vira o padrão. Os valores continuam sendo escapados onde entram no HTML.
+export const PARAM = {
+  enumerado: (lista, padrao = "") => (v) => (lista.includes(v) ? v : padrao),
+  numeroEm: (lista, padrao = 0) => (v) => (/^\d{1,6}$/.test(v || "") && lista.includes(+v) ? +v : padrao),
+  data: (padrao = "") => (v) => (dataValida(v) ? v : typeof padrao === "function" ? padrao() : padrao), // regra única de datas.js
+  hora: (padrao = "") => (v) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(v || "") ? v : padrao),
+  id: () => (v) => (/^[1-9]\d{0,9}$/.test(v || "") && +v <= 2147483647 ? +v : 0), // 0 = nenhum
+  inteiro: (min, max, padrao = min) => (v) => (/^\d{1,9}$/.test(v || "") && +v >= min && +v <= max ? +v : padrao),
+  texto: (max) => (v) => String(v ?? "").trim().slice(0, max),
+};
+export function lerParametros(q, regras) { const o = {}; for (const [k, ler] of Object.entries(regras)) o[k] = ler(q.get(k)); return o; }
+/** Período do painel/financeiro: p ∈ PERIODOS ou "personalizado" (só com de ≤ ate, datas válidas); senão, o padrão. */
+export function parametrosPeriodo(q, padrao) {
+  const r = lerParametros(q, { p: PARAM.enumerado([...PERIODOS.map(([k]) => k), "personalizado"], padrao), de: PARAM.data(), ate: PARAM.data() });
+  if (r.p === "personalizado" && (!r.de || !r.ate || r.de > r.ate)) r.p = padrao;
+  if (r.p !== "personalizado") { r.de = ""; r.ate = ""; }
+  return r;
+}
