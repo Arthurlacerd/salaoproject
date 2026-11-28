@@ -90,6 +90,7 @@ O `npm` aqui é só um atalho: não há `node_modules`, e os comandos podem ser 
 | `tests/e2e/tamanho_real.test.js` | 11.3.2: tamanho informado = arquivo baixado (bytes) e = `data/backup.salaobackup` do ZIP; cópias novas com `bytes`; listas, painéis e Diagnóstico em bytes; cópia antiga pelo `tamanho`; alerta com < 24 MB em caracteres e ≥ 24 MB em bytes |
 | `tests/e2e/leitura.test.js` | 11.3.2: cópia apagada (Dados e Manutenção), arquivo ilegível (Importar backup, Restaurar dados, Verificar arquivo) e telas sem login: mensagem clara, prévia anterior removida, campo limpo, nada gravado |
 | `tests/e2e/mensagens.test.js` | 11.3.2: confirmações visíveis depois do redesenho (~5 s); erros não vão para a tela seguinte |
+| `tests/e2e/corrida_previa.test.js` | 11.3.2: a última escolha vence (11 testes): A lento + B rápido, A rápido + B lento (dois casos), lentidão dentro de `mostrarPrevia()`, erro atrasado e os fluxos Dados, CSV, cópia, Restaurar dados e telas sem login; confirmar restaura a última escolha |
 | `tests/e2e/feedback.test.js` | 11.3.1: falhas de Exportar backup, Baixar cópia e Importar CSV com mensagem e estado intacto; "Entrando… preparando a cópia do dia" (sem duplo envio) ao entrar e ao reabrir; aviso de tamanho (24 / ~28 / 30+ MB); "Gerado em" local; "próximo atendimento" depois das 21h |
 | `tests/e2e/responsivo.test.js` | 12 telas e a prévia da restauração sem rolagem horizontal em 320, 375, 390, 430, 768, 1024, 1280, 1440 e 1920 px |
 

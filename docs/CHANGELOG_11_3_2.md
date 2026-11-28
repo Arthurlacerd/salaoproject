@@ -24,6 +24,10 @@ sem mudança. Só a lista de cache e os hashes mudam, via build.
 4. **Mensagens de confirmação.** "Backup gerado", "Cliente salva", "Despesa salva", "N cliente(s) importado(s)" e as
    demais confirmações não somem mais quando a tela é atualizada. Antes ficavam visíveis por 8 a 17 ms. Continuam
    sumindo sozinhas em ~5 s. Mensagens de erro não passam para a tela seguinte.
+5. **A última escolha vence.** Se dois arquivos ou duas cópias são escolhidos em seguida, só a última escolha aparece na
+   prévia e pode ser confirmada. Uma leitura mais antiga que termina depois é descartada: ela não substitui a prévia, não
+   apaga o formulário e não mostra erro. Antes, a prévia do primeiro arquivo podia aparecer no lugar da do segundo e ser
+   restaurada por engano.
 
 ## Como foi implementado
 
@@ -34,11 +38,16 @@ sem mudança. Só a lista de cache e os hashes mudam, via build.
 | 1 | `js/data/manutencao.js`, `js/data/diagnostico.js`, `js/ui/views.js` | O backup completo informa os bytes do `data/backup.salaobackup`. Diagnóstico, painéis e listas de cópias usam `tamanhoCopia()`. |
 | 2 | `js/ui/views.js`, `js/app.js` | A prévia anterior sai da tela antes de cada leitura ("Verificando o arquivo…" / "Abrindo a cópia…"). Os erros são tratados localmente, com mensagem e `console.error`, e o campo de arquivo é limpo quando a leitura falha. Nas telas sem login, que não têm área de avisos, o erro aparece na própria prévia. |
 | 3 | `js/ui/shell.js` | `montar()` guarda as mensagens que não são de erro antes de recriar a tela e as recoloca na área nova. A função de aviso e o CSS não mudaram. |
+| 5 | `js/ui/views.js`, `js/app.js` | Cada nova leitura recebe um número de pedido (`pedidoPrevia`) e invalida as anteriores. Uma leitura antiga não desenha, não apaga a prévia atual, não mexe no formulário nem mostra erro; só registra no console. `mostrarPrevia()` confere o pedido antes de cada desenho, inclusive depois das conferências internas. Vale para Dados (Verificar arquivo, CSV e Restaurar cópia), Manutenção (Importar backup e Restaurar dados) e as telas sem login. `restauracao.js` e `validacao_backup.js` não mudaram. |
 
 ## Testes
 
 - **Unitários:** `bytes.test.js` (novo).
-- **Navegador (Chromium):** `tamanho_real.test.js`, `leitura.test.js` e `mensagens.test.js` (novos).
+- **Navegador (Chromium):** `tamanho_real.test.js`, `leitura.test.js`, `mensagens.test.js` e `corrida_previa.test.js` (novos).
+- **A última escolha vence:** `corrida_previa.test.js` tem 11 testes. Cobre arquivo A lento + B rápido, A rápido + B lento
+  (dois casos), lentidão dentro de `mostrarPrevia()`, erro atrasado de A e os fluxos Dados, CSV, cópia, Restaurar dados e
+  telas sem login. Em todos os que restauram, confirmar restaura o conteúdo da última escolha. No código de antes da
+  correção, 10 dos 11 falham.
 - **Compatibilidade de backups:** passa a incluir a **11.3.1** (10.1–11.3.1).
 - **Atualização real e retorno:** `atualizacao.test.js` cobre **11.3.1 → 11.3.2** e o retorno **11.3.2 → 11.3.1** pela tela.
   Confere também que a versão anterior lê as cópias com `bytes`.
@@ -51,7 +60,5 @@ sem mudança. Só a lista de cache e os hashes mudam, via build.
   arquivo escolhido" não fazia parte do escopo.
 - **Mensagens seguidas de recarga da página** não são preservadas: "Configurações salvas.", e "Restaurado…"/"Restauração
   desfeita…", que ficam visíveis só até a recarga de 0,9 s.
-- **Duas verificações seguidas:** se dois arquivos são escolhidos muito rápido, a prévia do primeiro ainda pode terminar
-  depois da do segundo. O nome do arquivo aparece no título da prévia. Isso já acontecia antes.
 - **Conteúdo que desce e sobe:** a área de avisos fica no fluxo da página. O conteúdo desce enquanto uma confirmação está
   visível e sobe quando ela some, como já acontecia nas telas sem troca de rota.
