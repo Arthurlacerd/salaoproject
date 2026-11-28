@@ -1,5 +1,6 @@
 import { transacao, ler, agora, auditar, hoje } from "./database.js";
 import { exigir } from "./permissoes.js";
+import { validarData } from "./datas.js";
 export const FORMAS_DESP = ["Dinheiro", "Pix", "Débito", "Crédito", "Transferência", "Boleto", "Não informado"];
 export const CATEGORIAS_DESP = ["Produtos e materiais", "Aluguel", "Água e energia", "Internet e telefone", "Manutenção", "Marketing", "Taxas e tarifas", "Equipamentos", "Outras despesas"];
 export function statusPagamento(total, recebido, estorno, atual) {
@@ -16,6 +17,7 @@ export async function recalcular(t, aid) { // dentro de uma transação que incl
 export async function registrar(t, aid, tipo, valor, forma, data, obs = "") {
   if (!["recebimento", "estorno"].includes(tipo)) throw new Error("Tipo de lançamento inválido.");
   if (!(valor > 0)) throw new Error("Informe um valor maior que zero.");
+  const ed = validarData(data, "operacao", { nome: "data do lançamento" }); if (ed) throw new Error(ed); // 11.4: pagamento, estorno, receber saldo e recebido ao agendar
   const a = await t.atendimentos.get(aid); if (!a) throw new Error("Atendimento não encontrado.");
   const rec = a.valor_recebido_centavos || 0;
   if (tipo === "recebimento" && rec + valor > a.valor_centavos) throw new Error("O valor ultrapassa o que falta receber.");
@@ -40,11 +42,13 @@ export async function salvarDespesa(d) {
   const desc = (d.descricao || "").trim();
   if (!desc || desc.length > 120) throw new Error("Informe uma descrição com até 120 caracteres.");
   if (!(d.valor_centavos > 0)) throw new Error("Informe um valor maior que zero.");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d.data || "")) throw new Error("Informe uma data válida.");
+  { const ed = validarData(d.data, "operacao", { comFaixa: false }); if (ed) throw new Error(ed); } // 11.4: regra única (datas.js)
   if (!CATEGORIAS_DESP.includes(d.categoria)) throw new Error("Selecione uma categoria válida.");
   return transacao(["despesas", "auditoria"], "readwrite", async (t) => {
+    const ant = d.id ? await t.despesas.get(d.id) : null;
+    if (!ant || ant.data !== d.data) { const ef = validarData(d.data, "operacao"); if (ef) throw new Error(ef); } // faixa só quando a data é informada/alterada
     const reg = { descricao: desc, categoria: d.categoria, data: d.data, valor_centavos: d.valor_centavos, forma_pagamento: FORMAS_DESP.includes(d.forma_pagamento) ? d.forma_pagamento : "Não informado", observacoes: (d.observacoes || "").slice(0, 500) };
-    if (d.id) { const a = await t.despesas.get(d.id); await t.despesas.salvar({ ...a, ...reg }); await auditar(t, "edicao", "despesa", d.id, `Despesa editada: ${desc}`); return d.id; }
+    if (d.id) { const a = ant; await t.despesas.salvar({ ...a, ...reg }); await auditar(t, "edicao", "despesa", d.id, `Despesa editada: ${desc}`); return d.id; }
     const id = await t.despesas.adicionar({ ...reg, criado_em: agora() }); await auditar(t, "criacao", "despesa", id, `Despesa criada: ${desc}`); return id;
   });
 }

@@ -1,5 +1,6 @@
 import { transacao, ler, agora, hoje, norm, auditar } from "./database.js";
 import { exigir } from "./permissoes.js";
+import { validarData } from "./datas.js";
 const dig = (t) => String(t || "").replace(/\D/g, "");
 export async function listar({ q = "", inativasDias = 0 } = {}) {
   exigir("clientes.ler");
@@ -34,7 +35,7 @@ export function validar(d) {
   const nome = (d.nome || "").trim(), tel = (d.telefone || "").trim();
   if (nome.length < 3 || nome.length > 120) return "Informe o nome (3 a 120 letras).";
   if (dig(tel).length < 8) return "Informe um telefone válido com DDD.";
-  if (d.data_nascimento && Number.isNaN(Date.parse(d.data_nascimento))) return "Data de nascimento inválida.";
+  if (d.data_nascimento) { const ed = validarData(d.data_nascimento, "nascimento", { comFaixa: false, nome: "data de nascimento" }); if (ed) return ed; } // 11.4: regra única (datas.js); vazio = sem data
   return null;
 }
 export async function salvar(d, { permitirDuplicada = false } = {}) {
@@ -42,6 +43,8 @@ export async function salvar(d, { permitirDuplicada = false } = {}) {
   const erro = validar(d); if (erro) throw new Error(erro);
   return transacao(["clientes", "auditoria"], "readwrite", async (t) => {
     const todos = await t.clientes.todos();
+    const nasc = d.data_nascimento || null, antes = d.id ? todos.find((c) => c.id === d.id) : null;
+    if (nasc && (!antes || antes.data_nascimento !== nasc)) { const ef = validarData(nasc, "nascimento", { nome: "data de nascimento" }); if (ef) throw new Error(ef); } // faixa só quando informada/alterada
     const dup = todos.find((c) => c.id !== d.id && dig(c.telefone) === dig(d.telefone));
     if (dup && !permitirDuplicada) { const e = new Error(`Já existe uma cliente com este telefone: ${dup.nome}.`); e.duplicada = true; throw e; }
     const reg = { nome: d.nome.trim(), telefone: d.telefone.trim(), data_nascimento: d.data_nascimento || null, observacoes: (d.observacoes || "").slice(0, 2000), preferencias: (d.preferencias || "").slice(0, 500), atualizado_em: agora() };

@@ -1,6 +1,7 @@
 import { transacao, ler, agora, auditar, hoje } from "./database.js";
 import { exigir, pode } from "./permissoes.js";
 import { recalcular, registrar } from "./financeiro.js";
+import { validarData } from "./datas.js";
 export const STATUS = ["Agendado", "Confirmado", "Em atendimento", "Realizado", "Cancelado", "Falta", "A classificar"];
 export const FLUXO = { Agendado: "Confirmado", Confirmado: "Em atendimento", "Em atendimento": "Realizado" };
 const LIBERA = ["Cancelado", "Falta"];
@@ -29,7 +30,7 @@ export async function livres(data, ini = "08:00", fimExp = "19:00") {
 }
 export function validar(d) {
   if (!d.cliente_id) return "Selecione uma cliente cadastrada ou preencha o cadastro rápido.";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d.data || "") || Number.isNaN(Date.parse(d.data))) return "Informe uma data válida.";
+  const ed = validarData(d.data, "operacao", { comFaixa: false }); if (ed) return ed; // 11.4: regra única (datas.js); a faixa é conferida em salvar()
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(d.horario_agendado || "")) return "Informe um horário válido (00:00–23:59).";
   if ((d.servico || "").trim().length < 2) return "Informe o serviço.";
   if (!(d.valor_centavos >= 0)) return "Informe um valor válido.";
@@ -43,6 +44,7 @@ export async function salvar(d, recebidoInicial = 0) {
   return transacao(["atendimentos", "pagamentos", "servicos", "clientes", "auditoria"], "readwrite", async (t) => {
     const todos = await t.atendimentos.todos();
     const atual = d.id ? await t.atendimentos.get(d.id) : null;
+    if (!atual || atual.data !== d.data) { const ef = validarData(d.data, "operacao"); if (ef) throw new Error(ef); } // faixa só quando a data é informada/alterada
     const st = atual ? atual.status_atendimento : "Agendado";
     if (!LIBERA.includes(st)) { const c = conflito(todos, d.data, d.horario_agendado, dur, d.id);
       if (c) { const cl = await t.clientes.get(c.cliente_id); throw new Error(`Conflito de horário: ${cl?.nome || "outra cliente"} já ocupa ${c.horario_agendado}–${fim(c)}. Atendimentos podem encostar, mas não se sobrepor.`); } }

@@ -3,6 +3,7 @@ import { exigir } from "./permissoes.js";
 import { FORMATO, VERSAO_FORMATO, canonico, sha256 } from "./formatos_backup.js";
 import { analisarTexto, analisarDoc, AVISO_INCONSISTENTE, LIMITE_BYTES } from "./validacao_backup.js";
 import { bytesUtf8 } from "./tamanho_backup.js";
+import { paraInterna, validarData } from "./datas.js";
 // 11.3: formato e checksum em formatos_backup.js; análise em validacao_backup.js; restauração segura em restauracao.js.
 export { FORMATO, VERSAO_FORMATO, canonico, sha256 };
 export const LIMITE = LIMITE_BYTES;
@@ -104,7 +105,7 @@ export async function analisarCSV(texto) {
     r.linhas++; const nome = (l[iN] || "").trim(), tel = (l[iT] || "").trim(); let nasc = iD >= 0 ? (l[iD] || "").trim() : ""; const obs = iO >= 0 ? (l[iO] || "").trim().slice(0, 2000) : "";
     const it = { linha: k + 2, nome, telefone: tel, data_nascimento: null, observacoes: obs }; let motivo = "";
     if (!nome || nome.length > 120) motivo = "nome ausente ou longo demais"; else if (dig(tel).length < 8) motivo = "telefone ausente ou inválido";
-    if (nasc && !motivo) { const m = nasc.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if (m) nasc = `${m[3]}-${m[2]}-${m[1]}`; const d = new Date(nasc + "T00:00:00"); if (!/^\d{4}-\d{2}-\d{2}$/.test(nasc) || Number.isNaN(+d) || d.toISOString().slice(0, 10) !== nasc) motivo = "data de nascimento inválida"; else it.data_nascimento = nasc; }
+    if (nasc && !motivo) { const interna = paraInterna(nasc); if (!interna || validarData(interna, "nascimento")) motivo = "data de nascimento inválida"; else it.data_nascimento = interna; } // 11.4: sem fuso (datas.js)
     if (motivo) { it.motivo = motivo; r.invalidos.push(it); return; }
     const d = dig(tel); if (existentes.has(d)) { it.motivo = "telefone já cadastrado"; r.duplicados.push(it); return; }
     if (vistos.has(d)) { it.motivo = "telefone repetido no arquivo"; r.duplicados.push(it); return; }
@@ -114,6 +115,7 @@ export async function analisarCSV(texto) {
 }
 export async function importarClientes(validos) {
   exigir("clientes.gravar");
+  for (const v of validos) if (v.data_nascimento != null && validarData(v.data_nascimento, "nascimento")) throw new Error(`Data de nascimento inválida na linha ${v.linha}: nada foi importado.`); // 11.4: confere de novo antes de gravar
   return transacao(["clientes", "auditoria"], "readwrite", async (t) => { for (const v of validos) { const id = await t.clientes.adicionar({ ...v, preferencias: "", criado_em: agora(), atualizado_em: agora() }); await auditar(t, "criacao", "cliente", id, `Cliente importada de CSV: ${v.nome}`); } return validos.length; });
 }
 export async function diagnostico() {
