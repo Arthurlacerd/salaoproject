@@ -150,10 +150,10 @@ async function verificarBanco(c) { // sem contagens nem conteúdo: só se o banc
 }
 
 /** 11.3.1: tamanho da última cópia × limite da restauração (30 MB). Só o tamanho: nenhum conteúdo. */
-async function verificarTamanhoBackup() {
+async function verificarTamanhoBackup(sn) {
   const T = "Tamanho do backup";
   try {
-    const ult = (await snapshots())[0];
+    const ult = (sn || (await snapshots()))[0];
     if (!ult) return item("backup", T, "ok", `Ainda não há cópia para medir. A restauração aceita backups de até ${emMB(LIMITE_RESTAURACAO)}.`);
     const tam = tamanhoCopia(ult), t = avaliarTamanho(tam), base = `Última cópia: ${emMB(tam)} de ${emMB(LIMITE_RESTAURACAO)} (limite da restauração).`; // 11.3.2: bytes reais
     return item("backup", T, t.nivel === "ok" ? "ok" : t.nivel === "acima" ? "erro" : "aviso", t.mensagem ? `${base} ${t.mensagem}` : base);
@@ -162,10 +162,10 @@ async function verificarTamanhoBackup() {
 
 /** 11.4: último resultado conhecido da conferência de integridade (cópia do dia, backups e a tela de revisão).
  *  Só contagens e horários: nenhum dado pessoal. A conferência completa é feita em "Integridade dos dados". */
-async function verificarIntegridade() {
+async function verificarIntegridade(sn) {
   const T = "Integridade dos dados";
   try {
-    const st = integridadeConhecida(), ult = await ultimaCopiaRestauravel();
+    const st = integridadeConhecida(), ult = sn ? sn.find((s) => !s.inconsistente) || null : await ultimaCopiaRestauravel();
     if (!st) return item("integridade", T, "ok", "Ainda não conferido neste aparelho. A conferência roda na cópia automática do dia e a cada backup gerado.");
     if (st.consistente) return item("integridade", T, "ok", `Dados consistentes (conferido em ${st.quando}).`);
     return item("integridade", T, "erro", `${st.datas} registro(s) com data inválida e ${st.outros} outro(s) problema(s) (conferido em ${st.quando}). Backups gerados agora saem marcados como INCONSISTENTE e não podem ser restaurados normalmente.`,
@@ -195,7 +195,7 @@ function verificarInstalacao(nav) {
 export async function executar() {
   const ctx = {}, nav = navegador(); let c = {}; try { c = await config(); } catch (_) {}
   const itens = [verificarVersao(c), await verificarHttps(), ...(await verificarManifest(ctx)), await verificarServiceWorker(ctx), await verificarCache(), await verificarOffline(),
-    await verificarBanco(c), await verificarTamanhoBackup(), await verificarIntegridade(), await verificarPersistencia(), await verificarAtualizacao(ctx, c), await verificarFalha(), verificarInstalacao(nav)];
+    await verificarBanco(c), ...(await (async () => { let sn = null; try { sn = await snapshots(); } catch (_) {} return [await verificarTamanhoBackup(sn), await verificarIntegridade(sn)]; })()), await verificarPersistencia(), await verificarAtualizacao(ctx, c), await verificarFalha(), verificarInstalacao(nav)];
   return { itens, quando: agora(), versao: INFO.versao, banco: VERSAO_BANCO, schema: VERSAO_SCHEMA, nav, modo: modoExibicao(), online: navigator.onLine, identidade: ctx.identidade || "—", origem: location.origin, endereco: location.origin + location.pathname, instalacao: lerInstalacao() };
 }
 

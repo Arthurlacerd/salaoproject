@@ -7,15 +7,16 @@
  * "banco" = versão NATIVA do IndexedDB; "schema" = versão lógica das migrations. */
 globalThis.SALAO_VERSAO = {
   "sistema": "Salão.gestão",
-  "versao": "11.3.2",
+  "versao": "11.4.0",
   "data": "2026-11-28",
   "banco": 1,
   "schema": 2,
   "alteracoes": [
-    "Tamanho do backup medido em bytes reais do arquivo (antes, em caracteres): avisos de limite, Diagnóstico e o tamanho das cópias mostram o valor real",
-    "Restaurar uma cópia que já não existe mais mostra o motivo correto, em vez de \"arquivo vazio\"",
-    "Falha ao ler um arquivo de backup (Dados, Manutenção e telas sem login) mostra uma mensagem clara e tira da tela a prévia de outro arquivo",
-    "Mensagens de confirmação (ex.: \"Backup gerado\", \"Cliente salva\") não somem mais quando a tela é atualizada"
+    "Segurança: endereços (links) com parâmetros adulterados não executam mais código no aplicativo",
+    "Datas: uma única regra antes de gravar (agendamento, pagamento, estorno, despesa, aniversário e CSV); datas impossíveis ou com ano de 5 dígitos são recusadas, e o CSV não depende mais do fuso",
+    "Integridade dos dados: registros antigos com data inválida são localizados e corrigidos só pelo administrador, com confirmação e registro na auditoria",
+    "Backup: aviso fixo em Dados e item no Diagnóstico quando os dados estão inconsistentes; a última cópia local restaurável nunca é apagada pela limpeza automática",
+    "Desempenho: Hoje, Clientes e o agendamento ficam mais rápidos com muitos dados, sem mudar o que é mostrado"
   ],
   "arquivos": [
     "css/ds11.css",
@@ -72,7 +73,7 @@ globalThis.SALAO_VERSAO = {
     "js/data/clientes.js": "2c01b4439d6b3c465803a53744bfbccc0850544fe8c9a76108f972108a4e78d4",
     "js/data/database.js": "0dd031eea94e01334a094c4cef8592d59e375095f0311eb743753ec0e78b3523",
     "js/data/datas.js": "95fa455387e2ee9ebb3a8ec3128198ef3c264ab38f9e10a5f29312d9f3731e8f",
-    "js/data/diagnostico.js": "e688ab7a9ce258e492b0f9a0b186ed38005b76da35dede6d9b624115ac904ae4",
+    "js/data/diagnostico.js": "387dcf6027bbedf34ed5fcc2bce33f10030ed7b61c5b79b85db0b522bdb348de",
     "js/data/esquema_backup.js": "41678e8da2420b21bcc2a521926cd40bb6a989672e6c407911913760e52e8f59",
     "js/data/financeiro.js": "2f7ee0db2bb3b2104d9540bfa2f2b7e319d60d6aba341ec87206b170c63576d9",
     "js/data/formatos_backup.js": "ff0fffe303439d9a0d5d365dae9ca646b4d6c63acf1a7b356c6fbb58ffd044e2",

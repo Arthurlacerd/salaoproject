@@ -112,7 +112,9 @@ passaria a tratar como outro aplicativo (ícone duplicado ou sem atualizações)
 ## 6. Backup é a proteção principal
 
 As cópias automáticas (até 8, mais a última de cada tipo de segurança, até 40 MB) ficam **no próprio aparelho, dentro do
-mesmo banco**. Elas protegem contra erro de operação e de atualização, mas **não** contra a limpeza dos dados do site ou a
+mesmo banco**. **Desde a 11.4, a última cópia consistente (restaurável) nunca é apagada pela limpeza automática**, nem pela
+quantidade nem pelo tamanho: se os dados ficarem inconsistentes, as cópias novas saem marcadas e a última restaurável
+continua lá (Dados e backup mostra qual é). Sem cópias inconsistentes, a limpeza é exatamente a de antes. Elas protegem contra erro de operação e de atualização, mas **não** contra a limpeza dos dados do site ou a
 desinstalação. O arquivo `.salaobackup` baixado, guardado fora do aparelho, continua sendo a proteção principal; o app
 avisa quando o último download tem mais de 7 dias.
 
@@ -137,4 +139,14 @@ além de **Diagnóstico › Tamanho do backup**. Desde a 11.3.2, o tamanho medid
 `data/backup.salaobackup` dentro do ZIP. Cada cópia nova do aparelho grava `bytes` junto de `tamanho`; as cópias criadas
 antes da 11.3.2 não têm `bytes` e usam o `tamanho` (caracteres) até serem substituídas. As listas de cópias mostram o
 tamanho em KB pelo mesmo critério. Bytes nunca são menos que caracteres, então o aviso cobre os dois caminhos da
-restauração (arquivo: bytes; cópia do aparelho: caracteres). **A retenção das cópias continua por `tamanho`**, sem mudança.
+restauração (arquivo: bytes; cópia do aparelho: caracteres). **A retenção das cópias continua por `tamanho`** (a 11.4 só acrescentou a proteção da última cópia consistente).
+
+## 7. Integridade dos dados (11.4)
+
+A mesma validação que decide se um backup pode ser restaurado é usada para localizar registros problemáticos no aparelho
+(**Dados e backup › Revisar registros** ou **Diagnóstico › Integridade dos dados**, só administrador). Nada é corrigido
+automaticamente: datas inválidas são ambíguas. Atendimento e despesa abrem a edição já existente; aniversário e lançamento
+(recebimento/estorno) têm a ação **Corrigir data**, sempre com confirmação e registrada na auditoria (valor anterior e
+novo). O valor e o tipo de um lançamento nunca mudam, e lançamentos com data válida continuam sem edição. Enquanto houver
+registro inválido, os backups continuam sendo gerados (marcados como INCONSISTENTE) e a tela Dados mostra um aviso fixo.
+
