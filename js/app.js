@@ -7,7 +7,7 @@ import { ler } from "./data/database.js";
 import { esc, toast, esqueleto } from "./ui/util.js";
 import { ic, tile } from "./ui/icones.js";
 import { montar, rede } from "./ui/shell.js";
-import { ROTAS, mostrarPrevia, painelDesfazer, limparPrevia, erroNaPrevia } from "./ui/views.js";
+import { ROTAS, mostrarPrevia, painelDesfazer, erroNaPrevia, novaLeitura, leituraDescartada } from "./ui/views.js";
 import * as Rst from "./data/restauracao.js";
 import { marcarInstalacao } from "./data/diagnostico.js";
 
@@ -29,12 +29,12 @@ function emAndamento(form, el, acao) {
     try { await acao(d, etapa); } catch (err) { bt.disabled = false; bt.textContent = original; enviando = false; erroBox(el).textContent = err.message; } };
 }
 
-/** 11.3.2: verificar um arquivo nas telas sem login. A prévia anterior sai da tela e um erro de leitura aparece na própria
- *  tela (aqui não há área de avisos). Só lê: nada é gravado antes da confirmação na prévia. */
+/** 11.3.2: verificar um arquivo nas telas sem login. A prévia anterior sai da tela, a última escolha sempre vence e um erro
+ *  de leitura aparece na própria tela (aqui não há área de avisos). Só lê: nada é gravado antes da confirmação na prévia. */
 async function verificarSemLogin(el, f) {
-  limparPrevia(el, "Verificando o arquivo…");
-  try { await mostrarPrevia(el, await Rst.analisarArquivo(f), f.name, { publico: true }); }
-  catch (err) { el.querySelector("#arq").value = ""; erroNaPrevia(el, "Não foi possível verificar o arquivo (nada foi alterado)", err); }
+  const vigente = novaLeitura(el, "Verificando o arquivo…");
+  try { const rel = await Rst.analisarArquivo(f); if (!vigente()) return leituraDescartada(); await mostrarPrevia(el, rel, f.name, { publico: true, vigente }); }
+  catch (err) { if (!vigente()) return leituraDescartada(err); el.querySelector("#arq").value = ""; erroNaPrevia(el, "Não foi possível verificar o arquivo (nada foi alterado)", err); }
 }
 async function recuperacao(m) { // dados perdidos: aparelho sem usuários — restauração sem login permitida (D1)
   const el = tela("Seus dados não foram encontrados", `<p>Este aparelho já tinha ${m.clientes} cliente(s) cadastrada(s) (última marcação: ${esc(m.quando)}), mas o banco está vazio. Isso acontece quando os <strong>dados do site são limpos</strong> no navegador, o app é desinstalado ou o modo privado é usado.</p><p class="muted">Não é possível recuperar dados apagados sem um arquivo de backup. Se você tiver um <strong>.salaobackup</strong>, restaure-o abaixo.</p><label class="field">Arquivo de backup<input type="file" id="arq" accept=".salaobackup,.json"></label><div class="form-actions"><button class="button" id="rest">Verificar arquivo</button><button class="button button-light" id="novo">Começar do zero</button></div><div id="previa"></div>`);

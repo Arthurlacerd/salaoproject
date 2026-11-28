@@ -63,7 +63,7 @@ globalThis.SALAO_VERSAO = {
     "icons/icon-512.png": "f338ad250528947f920f4fa771bca102965525eac2c9340d8499fbc488ab84f2",
     "icons/maskable-512.png": "419ff8f3580eebfad6c4043fdc6dae4406e9133a55eceda2d1cb4111d4098ccf",
     "index.html": "12bf4bc7c481b08512bb39ae58c88059c716a49ac44590965873c63493fe9e4e",
-    "js/app.js": "6a562b9f593a22c75bfda9bdbee0b872e6f6fb8decf6c357b6b9dafd1617411a",
+    "js/app.js": "1ae84282c3715a18867c22e01cb6538fdc483392726d3447bdab82dbba716052",
     "js/charts.js": "8e51d9d70753157c1cf6e9b92d8598023d36fafa77f1ada699e06eb884867c1f",
     "js/data/agenda.js": "27d2631c3ba8c6f688f6c77b56f9ff8f7383957e5a0591f6e33e8e62b0b2fe46",
     "js/data/backup.js": "5b50733cc7b38a448fcfa525d9f6b105808a89a95a7f3132d5e6fb2c4258a091",
@@ -86,7 +86,7 @@ globalThis.SALAO_VERSAO = {
     "js/ui/icones.js": "e1db8ce43e2b0a1611735174945fd38d9ad47f6b7a7dbe3e7a19242128db399d",
     "js/ui/shell.js": "3b83e5a5a209d1a73422a356a0dd2109ce0ef0be65aa3abe9fe5b4e99ae64a59",
     "js/ui/util.js": "bd7e6388c2649fe1116463c6edb8b71f09ff3bd2cd408b1b32b48cc6806f9b95",
-    "js/ui/views.js": "f53b25af1ce3e168ed7e6e21acb1196de86865ca34a27d274b7e22db75b0867c",
+    "js/ui/views.js": "c3e72b83049d72287c4ba91e71de5e1250229413a78c8018b2891322b6226c91",
     "manifest.webmanifest": "4d3c7261f77eb7044c34be68fd3ae34cbd5edfa06e0e4fb651707acb8ae50674",
     "sw.js": "2d100c1c1796ace31a65e3c74ee11b6d38a4c503c6f25ec5bb829e7365a20d15"
   }

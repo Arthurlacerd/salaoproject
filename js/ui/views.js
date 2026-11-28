@@ -231,6 +231,11 @@ const falhou = (oque, err) => { console.error(err); toast(`${oque}: ${(err && er
 export function limparPrevia(el, status = "") { const p = el.querySelector("#previa"); if (p) p.innerHTML = status ? `<p class="muted" role="status">${esc(status)}</p>` : ""; }
 /** 11.3.2: erro escrito na própria prévia (as telas sem login não têm a área de avisos). */
 export function erroNaPrevia(el, oque, err) { console.error(err); const p = el.querySelector("#previa"); if (p) p.innerHTML = `<div class="alert erro" role="alert" data-restauracao="erro-leitura"><div>${esc(`${oque}: ${(err && err.message) || err}`)}</div></div>`; }
+/** 11.3.2: "a última escolha sempre vence". Cada nova leitura de arquivo ou cópia invalida as anteriores; uma leitura antiga
+ *  não desenha, não apaga a prévia atual, não mexe no formulário nem mostra erro — só registra no console. */
+let pedidoPrevia = 0;
+export function novaLeitura(el, status) { limparPrevia(el, status); const meu = ++pedidoPrevia; return () => meu === pedidoPrevia; }
+export const leituraDescartada = (err) => console.warn("Leitura substituída por uma escolha mais recente: resultado descartado.", err ?? "");
 /** 11.3.2: texto de uma cópia local; erro claro se ela não existe mais (ex.: apagada pela retenção com a lista aberta). */
 const textoDaCopia = async (id) => { const t = await Bkp.snapshotTexto(id); if (typeof t !== "string") throw new Error("essa cópia não existe mais neste aparelho (pode ter sido substituída por uma mais nova). Atualize a tela."); return t; };
 rota(/^dados$/, async () => {
@@ -249,29 +254,33 @@ rota(/^dados$/, async () => {
       try { const t = await Bkp.snapshotTexto(+b.dataset.snap); if (typeof t !== "string") throw new Error("essa cópia não existe mais neste aparelho (pode ter sido substituída por uma mais nova). Atualize a tela.");
         const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([t])); a.download = Bkp.nomeArquivo(); a.click(); }
       catch (err) { falhou("Não foi possível baixar a cópia", err); } }));
-    el.querySelectorAll("[data-rest]").forEach((b) => (b.onclick = async () => { limparPrevia(el, "Abrindo a cópia…");
-      try { await mostrarPrevia(el, await Bkp.validar(await textoDaCopia(+b.dataset.rest)), "cópia deste aparelho"); }
-      catch (err) { limparPrevia(el); falhou("Não foi possível abrir a cópia para restaurar (nada foi alterado)", err); } }));
+    el.querySelectorAll("[data-rest]").forEach((b) => (b.onclick = async () => { const vigente = novaLeitura(el, "Abrindo a cópia…");
+      try { const rel = await Bkp.validar(await textoDaCopia(+b.dataset.rest)); if (!vigente()) return leituraDescartada();
+        await mostrarPrevia(el, rel, "cópia deste aparelho", { vigente }); }
+      catch (err) { if (!vigente()) return leituraDescartada(err); limparPrevia(el); falhou("Não foi possível abrir a cópia para restaurar (nada foi alterado)", err); } }));
     el.querySelector("#analisar").onclick = async () => { const f = el.querySelector("#arq").files[0]; if (!f) return toast("Escolha um arquivo.", "erro");
-      limparPrevia(el, "Verificando o arquivo…");
+      const vigente = novaLeitura(el, "Verificando o arquivo…");
       try {
-      if (/\.csv$/i.test(f.name)) { const r = await Bkp.analisarCSV(await f.text()); el.querySelector("#previa").innerHTML = r.erro ? `<div class="alert erro">${esc(r.erro)}</div>` : `<section class="panel panel-pad"><h2>Prévia — clientes (CSV)</h2><div class="kpi-grid kpi-grid-sm"><div class="kpi"><span class="stat-label">Encontrados</span><strong>${r.linhas}</strong></div><div class="kpi kpi-accent"><span class="stat-label">Válidos</span><strong>${r.validos.length}</strong></div><div class="kpi kpi-warn"><span class="stat-label">Duplicados</span><strong>${r.duplicados.length}</strong></div><div class="kpi"><span class="stat-label">Inválidos</span><strong>${r.invalidos.length}</strong></div></div>${r.invalidos.length + r.duplicados.length ? `<details open class="legend"><summary>Não serão importados</summary><ul class="plain-list">${[...r.invalidos, ...r.duplicados].map((i) => `<li>Linha ${i.linha} — ${esc(i.nome || "(sem nome)")}: ${i.motivo}</li>`).join("")}</ul></details>` : ""}${r.validos.length ? `<button class="button" id="ok-csv">Importar ${r.validos.length} cliente(s)</button>` : ""}</section>`;
+      if (/\.csv$/i.test(f.name)) { const r = await Bkp.analisarCSV(await f.text()); if (!vigente()) return leituraDescartada(); el.querySelector("#previa").innerHTML = r.erro ? `<div class="alert erro">${esc(r.erro)}</div>` : `<section class="panel panel-pad"><h2>Prévia — clientes (CSV)</h2><div class="kpi-grid kpi-grid-sm"><div class="kpi"><span class="stat-label">Encontrados</span><strong>${r.linhas}</strong></div><div class="kpi kpi-accent"><span class="stat-label">Válidos</span><strong>${r.validos.length}</strong></div><div class="kpi kpi-warn"><span class="stat-label">Duplicados</span><strong>${r.duplicados.length}</strong></div><div class="kpi"><span class="stat-label">Inválidos</span><strong>${r.invalidos.length}</strong></div></div>${r.invalidos.length + r.duplicados.length ? `<details open class="legend"><summary>Não serão importados</summary><ul class="plain-list">${[...r.invalidos, ...r.duplicados].map((i) => `<li>Linha ${i.linha} — ${esc(i.nome || "(sem nome)")}: ${i.motivo}</li>`).join("")}</ul></details>` : ""}${r.validos.length ? `<button class="button" id="ok-csv">Importar ${r.validos.length} cliente(s)</button>` : ""}</section>`;
         const ok = el.querySelector("#ok-csv"); if (ok) ok.onclick = async () => { ok.disabled = true;
           try { const n = await Bkp.importarClientes(r.validos); toast(`${n} cliente(s) importado(s).`); location.hash = "#/clientes"; }
           catch (err) { falhou("A importação falhou e nenhuma cliente foi importada", err); ok.disabled = false; } }; return; }
-      await mostrarPrevia(el, await Rst.analisarArquivo(f), f.name);
-      } catch (err) { limparPrevia(el); el.querySelector("#arq").value = ""; falhou("Não foi possível verificar o arquivo (nada foi alterado)", err); } };
+      const rel = await Rst.analisarArquivo(f); if (!vigente()) return leituraDescartada();
+      await mostrarPrevia(el, rel, f.name, { vigente });
+      } catch (err) { if (!vigente()) return leituraDescartada(err); limparPrevia(el); el.querySelector("#arq").value = ""; falhou("Não foi possível verificar o arquivo (nada foi alterado)", err); } };
   } };
 });
 // ---------- restauração segura (11.3) ----------
 const ROTULOS_COPIA = { automatico: "Cópia automática diária", pre_importacao: "Cópia antes da restauração", pre_atualizacao: "Cópia antes de atualizar", pre_migracao: "Cópia antes de atualizar a estrutura dos dados", pre_retorno_versao: "Cópia antes de voltar de versão" };
 export const rotuloCopia = (c) => (ROTULOS_COPIA[c.motivo] || c.motivo) + (c.inconsistente ? " · estado inconsistente (apenas recuperação/análise)" : "");
-/** Prévia + confirmação. publico = sem login (aparelho sem nenhum usuário): não mostra dados atuais nem oferece download. */
-export async function mostrarPrevia(el, rel, nome, { publico = false } = {}) {
+/** Prévia + confirmação. publico = sem login (aparelho sem nenhum usuário): não mostra dados atuais nem oferece download.
+ *  vigente (11.3.2) = esta leitura ainda é a escolha mais recente; se não for, nada é desenhado. */
+export async function mostrarPrevia(el, rel, nome, { publico = false, vigente = () => true } = {}) {
   const box = el.querySelector("#previa");
   const erros = !rel.ok ? rel.erros : publico && !rel.temUsuarios ? [Rst.MENSAGENS.SEM_ACESSO_RESULTANTE] : null; // sem usuários, a restauração seria recusada
-  if (erros) { box.innerHTML = `<div class="alert erro" data-restauracao="bloqueada"><div><strong>Restauração bloqueada — nada foi alterado.</strong><ul class="plain-list">${erros.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div></div>`; return; }
+  if (erros) { if (!vigente()) return; box.innerHTML = `<div class="alert erro" data-restauracao="bloqueada"><div><strong>Restauração bloqueada — nada foi alterado.</strong><ul class="plain-list">${erros.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div></div>`; return; }
   const cmp = publico ? { atual: {} } : await Bkp.comparar(rel), inconsistente = publico ? false : (await Rst.estadoAtualConsistente()) === false;
+  if (!vigente()) return; // 11.3.2: uma escolha mais recente assumiu a prévia enquanto esta era conferida
   box.innerHTML = `<section class="panel panel-pad" data-restauracao="previa"><h2>Prévia da restauração — ${esc(nome)}</h2><dl class="facts"><div><dt>Gerado em</dt><dd>${esc(dataHoraBackup(rel.criado_em, rel.origem))}</dd></div><div><dt>Origem / versão</dt><dd>${esc(rel.origem)} · ${esc(rel.versao_app || "não informada")}</dd></div>${Object.entries(rel.contagens).map(([t, n]) => `<div><dt>${t.replace("_", " ")}</dt><dd>${n} no arquivo${cmp.atual[t] != null ? ` · ${cmp.atual[t]} agora` : ""}</dd></div>`).join("")}</dl>${rel.avisos.map((a) => `<div class="alert aviso">${esc(a)}</div>`).join("")}
   <div class="alert erro"><div><strong>A restauração substituirá os dados deste aparelho</strong> (clientes, agenda, atendimentos, pagamentos, despesas, serviços, configurações e histórico)${rel.temUsuarios ? " <strong>e também os usuários</strong>: depois dela, entre com um usuário do backup." : ". Os usuários deste aparelho serão mantidos."}</div></div>
   <p class="muted">Antes de gravar, uma cópia do estado atual é guardada neste aparelho. Se algo falhar, nada é alterado; depois, se precisar, use “Desfazer a última restauração”.</p>
@@ -384,17 +393,19 @@ rota(/^manutencao$/, async () => {
     el.querySelector("#m-exp").onclick = (ev) => ocupado(ev.currentTarget, async () => { const r = await Bkp.baixar(); if (r.consistente) { toast("Backup criado e validado. Guarde o arquivo em local seguro."); await rec(); avisarTamanho(r.bytes); } else res.innerHTML = `<div class="alert aviso"><div><strong>Backup gerado com atenção.</strong> ${esc(AVISO_INCONSISTENTE)}<ul class="plain-list">${r.problemas.map((p) => `<li>${esc(p)}</li>`).join("")}</ul></div></div>${alertaTamanho(r.bytes)}`; });
     el.querySelector("#m-app").onclick = (ev) => ocupado(ev.currentTarget, async () => { const r = await Man.exportarAplicacao(); res.innerHTML = `<div class="alert aviso">${ic("check", 16)} ${esc(r.nome)} gerado (${r.arquivos} arquivos). É o backup do <strong>programa</strong>; seus dados não estão nele.</div>`; });
     el.querySelector("#m-comp").onclick = (ev) => ocupado(ev.currentTarget, async () => { const r = await Man.backupCompleto(); res.innerHTML = `<div class="alert aviso">${ic("check", 16)} ${r.consistente === false ? `<span>Backup completo gerado: aplicação + ${r.contagens.clientes} cliente(s), ${r.contagens.atendimentos} atendimento(s). Senhas só como hash. <strong>Atenção:</strong> ${esc(AVISO_INCONSISTENTE)}</span>` : `Backup completo gerado: aplicação + ${r.contagens.clientes} cliente(s), ${r.contagens.atendimentos} atendimento(s). Senhas só como hash.`}</div>${alertaTamanho(r.bytes)}`; if (r.consistente !== false) { await rec(); avisarTamanho(r.bytes); } });
-    el.querySelector("#m-arq").onchange = async (ev) => { const f = ev.target.files[0]; if (!f) return; limparPrevia(el, "Verificando o arquivo…");
-      try { await mostrarPrevia(el, await Rst.analisarArquivo(f), f.name); }
-      catch (err) { limparPrevia(el); falhou("Não foi possível verificar o arquivo (nada foi alterado)", err); }
-      finally { ev.target.value = ""; } };
+    el.querySelector("#m-arq").onchange = async (ev) => { const f = ev.target.files[0]; if (!f) return; const vigente = novaLeitura(el, "Verificando o arquivo…");
+      try { const rel = await Rst.analisarArquivo(f); if (!vigente()) return leituraDescartada(); await mostrarPrevia(el, rel, f.name, { vigente }); }
+      catch (err) { if (!vigente()) return leituraDescartada(err); limparPrevia(el); falhou("Não foi possível verificar o arquivo (nada foi alterado)", err); }
+      finally { if (vigente()) ev.target.value = ""; } };
     el.querySelector("#m-rest").onclick = () => { const box = el.querySelector("#m-restaurar"); box.innerHTML = `<section class="panel panel-pad"><h2>Restaurar dados</h2><p class="muted">Escolha uma cópia deste aparelho ou um arquivo. Você verá o resumo e confirmará; antes de substituir, um backup de segurança dos dados atuais é criado e validado.</p>${e.snapshots.length ? `<ul class="mini-list">${e.snapshots.map((b) => `<li><div>${esc(rotuloCopia(b))}<small>${esc(b.criado_em)}</small></div><button class="act-btn" data-rest="${b.id}">Restaurar esta</button></li>`).join("")}</ul>` : ""}<label class="field">Ou escolha um arquivo<input type="file" id="m-arq2" accept=".salaobackup,.json"></label></section>`;
-      box.querySelectorAll("[data-rest]").forEach((b) => (b.onclick = async () => { limparPrevia(el, "Abrindo a cópia…");
-        try { await mostrarPrevia(el, await Bkp.validar(await textoDaCopia(+b.dataset.rest)), "cópia local"); el.querySelector("#previa").scrollIntoView(); }
-        catch (err) { limparPrevia(el); falhou("Não foi possível abrir a cópia para restaurar (nada foi alterado)", err); } }));
-      box.querySelector("#m-arq2").onchange = async (ev) => { const f = ev.target.files[0]; if (!f) return; limparPrevia(el, "Verificando o arquivo…");
-        try { await mostrarPrevia(el, await Rst.analisarArquivo(f), f.name); el.querySelector("#previa").scrollIntoView(); }
-        catch (err) { limparPrevia(el); ev.target.value = ""; falhou("Não foi possível verificar o arquivo (nada foi alterado)", err); } }; };
+      box.querySelectorAll("[data-rest]").forEach((b) => (b.onclick = async () => { const vigente = novaLeitura(el, "Abrindo a cópia…");
+        try { const rel = await Bkp.validar(await textoDaCopia(+b.dataset.rest)); if (!vigente()) return leituraDescartada();
+          await mostrarPrevia(el, rel, "cópia local", { vigente }); if (vigente()) el.querySelector("#previa").scrollIntoView(); }
+        catch (err) { if (!vigente()) return leituraDescartada(err); limparPrevia(el); falhou("Não foi possível abrir a cópia para restaurar (nada foi alterado)", err); } }));
+      box.querySelector("#m-arq2").onchange = async (ev) => { const f = ev.target.files[0]; if (!f) return; const vigente = novaLeitura(el, "Verificando o arquivo…");
+        try { const rel = await Rst.analisarArquivo(f); if (!vigente()) return leituraDescartada();
+          await mostrarPrevia(el, rel, f.name, { vigente }); if (vigente()) el.querySelector("#previa").scrollIntoView(); }
+        catch (err) { if (!vigente()) return leituraDescartada(err); limparPrevia(el); ev.target.value = ""; falhou("Não foi possível verificar o arquivo (nada foi alterado)", err); } }; };
     el.querySelectorAll("[data-snap]").forEach((b) => (b.onclick = async () => {
       try { const t = await Bkp.snapshotTexto(+b.dataset.snap); if (typeof t !== "string") throw new Error("essa cópia não existe mais neste aparelho (pode ter sido substituída por uma mais nova). Atualize a tela."); Bkp.baixarTexto(t, Bkp.nomeArquivo()); }
       catch (err) { falhou("Não foi possível baixar a cópia", err); } }));
