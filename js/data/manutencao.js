@@ -4,6 +4,7 @@ import * as Bkp from "./backup.js";
 import { criarZip } from "./zip.js";
 import { exigir } from "./permissoes.js";
 import { AVISO_INCONSISTENTE } from "./validacao_backup.js";
+import { bytesUtf8 } from "./tamanho_backup.js";
 
 export const cmp = (a, b) => { const x = String(a).split(".").map(Number), y = String(b).split(".").map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
 export const VERSAO = INFO.versao;
@@ -48,7 +49,7 @@ export async function backupCompleto() {
   const todos = [...arq.map((a) => ({ nome: "app/" + a.nome, dados: a.dados })), { nome: "data/backup.salaobackup", dados: texto },
     { nome: "LEIA-ME.txt", dados: `Salão.gestão ${INFO.versao} — BACKUP COMPLETO (${agora()})\n\napp/  = arquivos do programa (backup da aplicação)\ndata/ = backup dos dados (.salaobackup; senhas só como hash, nunca em texto puro)\n\nPara restaurar os dados: Configurações → Manutenção → Importar backup, escolhendo data/backup.salaobackup.\nPara republicar o programa: hospede o conteúdo de app/ em um servidor HTTPS.\n${consistente ? "" : `\nATENÇÃO: ${AVISO_INCONSISTENTE}\n`}` }];
   const blob = criarZip(todos); Bkp.baixarBlob(blob, `salao-gestao-backup-completo-v${INFO.versao}.zip`); if (consistente) localStorage.setItem("salao_ultimo_download", agora()); // estado inconsistente não conta como backup saudável (D3)
-  await transacao(["auditoria"], "readwrite", (t) => auditar(t, "exportacao", "sistema", null, "Backup completo (aplicação + dados) exportado")); return { arquivos: todos.length, contagens: rel.contagens, consistente, bytes: texto.length }; // 11.3.1: bytes = tamanho do .salaobackup (aviso de limite)
+  await transacao(["auditoria"], "readwrite", (t) => auditar(t, "exportacao", "sistema", null, "Backup completo (aplicação + dados) exportado")); return { arquivos: todos.length, contagens: rel.contagens, consistente, bytes: bytesUtf8(texto) }; // 11.3.2: bytes reais do data/backup.salaobackup (o ZIP grava o texto em UTF-8)
 }
 
 // ---------- atualização segura ----------

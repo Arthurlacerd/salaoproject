@@ -5,6 +5,7 @@
 // 11.3: retorno só para versões >= 11.3.0 (as anteriores restauram backups sem login): voltar para 11.1/11.2 é RECUSADO.
 // 11.3.1: também 11.3.0 → atual (a versão em produção). A tela só oferece "Voltar para esta" a versões permitidas: as
 // bloqueadas (11.1/11.2) aparecem com o motivo e sem botão; o retorno para a 11.3.0 é feito e desfeito PELA TELA.
+// 11.3.2: também 11.3.1 → atual e o retorno atual → 11.3.1; a versão anterior lê as cópias com o campo novo "bytes".
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -13,7 +14,7 @@ import path from "node:path";
 import { semNavegador, versaoAtual, versaoGit, refExiste, servidor, navegador, abrir, configurarAdmin, semear, estadoDados, caches, limpar, gravarSaida, VERSAO, RAIZ } from "./_ambiente.js";
 
 const PARTIDAS = [["11.1.0", process.env.SALAO_REF_ANTERIOR || "b8061f2adda083ff76476e10196960105a4b6813"], ["11.2.0", process.env.SALAO_REF_11_2 || "20218e20e782e241ad96b7912cccf0ef6b831bc8"],
-  ["11.3.0", process.env.SALAO_REF_11_3 || "1e7acea9166443238cfe6ddb31108c3661dcd35b"]];
+  ["11.3.0", process.env.SALAO_REF_11_3 || "1e7acea9166443238cfe6ddb31108c3661dcd35b"], ["11.3.1", process.env.SALAO_REF_11_3_1 || "f6fc328f7110ad23c450bff1270e7298bd3f3f5d"]];
 const CACHE = (v) => "salao-static-v" + v;
 const cmpV = (a, b) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
 const DADOS_PRESERVADOS = ["clientes", "atendimentos", "pagamentos", "despesas", "usuarios", "servicos", "cliente", "atendimento", "schema", "migracoes"];
@@ -121,6 +122,10 @@ for (const [ANTERIOR, REF] of PARTIDAS) describe(`atualização ${ANTERIOR} → 
     const e2 = await estadoDados(page); assert.equal(e2.versao, ANTERIOR);
     for (const k of DADOS_PRESERVADOS) assert.deepEqual(e2[k], e1[k], `dado preservado: ${k}`);
     assert.ok(e2.backups.includes("pre_retorno_versao"), "cópia antes do retorno");
+    const cp = await page.evaluate(async () => { const B = await import("./js/data/backup.js"); const s = (await B.snapshots()).find((x) => x.motivo === "pre_retorno_versao");
+      return { bytes: s.bytes, tamanho: s.tamanho, ok: (await B.validar(await B.snapshotTexto(s.id))).ok }; });
+    assert.ok(Number.isFinite(cp.bytes) && cp.bytes >= cp.tamanho, `a cópia gravada pela ${VERSAO} tem "bytes"`);
+    assert.equal(cp.ok, true, `a ${ANTERIOR} lê e valida a cópia gravada pela ${VERSAO} (com o campo novo "bytes")`);
     const c = await page.evaluate(async () => { const r = await (await import("./js/data/backup.js")).criarValidado(); return { ok: r.consistente, erros: r.rel.erros }; });
     assert.equal(c.ok, true, `a ${ANTERIOR} lê os dados deixados pela ${VERSAO} sem inconsistência: ${c.erros.join(" | ")}`);
     // "Usar a mais recente" (tela da própria ${ANTERIOR})

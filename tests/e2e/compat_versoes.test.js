@@ -1,11 +1,11 @@
 // COMPATIBILIDADE OBRIGATÓRIA (11.3): backups gerados pelo PRÓPRIO código das versões publicadas que temos como evidência
-// (10.1.0, 11.0.0, 11.1.0, 11.2.0 e, desde a 11.3.1, 11.3.0 — extraídas do git e executadas no Chromium) continuam restaurando na versão atual,
+// (10.1.0, 11.0.0, 11.1.0, 11.2.0, 11.3.0 e, desde a 11.3.2, 11.3.1 — extraídas do git e executadas no Chromium) continuam restaurando na versão atual,
 // com login funcionando e dados idênticos. É a proteção principal contra uma validação rígida demais.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { semNavegador, versaoAtual, versaoGit, refExiste, servidor, navegador, abrir, configurarAdmin, semear, limpar, entrarUI, VERSAO } from "./_ambiente.js";
 
-const VERSOES = [["10.1.0", "f07d811c1d2e25bb7af057e1d8f54a93a31cadf4"], ["11.0.0", "a3b731e2beb7efb357c468e988fbda4d2df4ac1a"], ["11.1.0", "b8061f2adda083ff76476e10196960105a4b6813"], ["11.2.0", "20218e20e782e241ad96b7912cccf0ef6b831bc8"], ["11.3.0", "1e7acea9166443238cfe6ddb31108c3661dcd35b"]];
+const VERSOES = [["10.1.0", "f07d811c1d2e25bb7af057e1d8f54a93a31cadf4"], ["11.0.0", "a3b731e2beb7efb357c468e988fbda4d2df4ac1a"], ["11.1.0", "b8061f2adda083ff76476e10196960105a4b6813"], ["11.2.0", "20218e20e782e241ad96b7912cccf0ef6b831bc8"], ["11.3.0", "1e7acea9166443238cfe6ddb31108c3661dcd35b"], ["11.3.1", "f6fc328f7110ad23c450bff1270e7298bd3f3f5d"]];
 const ADMIN = { usuario: "admin", senha: "senha-de-teste-123" };
 let nav, dAtual, srvAtual;
 before(async () => { if (semNavegador) return; nav = await navegador(); dAtual = versaoAtual(); srvAtual = await servidor(dAtual); });

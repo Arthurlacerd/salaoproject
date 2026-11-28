@@ -132,7 +132,9 @@ Desde a 11.3.1, o app avisa antes de chegar lá. O aviso só informa e **nunca b
 | 30 MB ou mais | o backup **ultrapassou o limite** da restauração e não pode ser restaurado por este aplicativo |
 
 O aviso aparece em **Dados e backup** e em **Manutenção** (pela última cópia do aparelho, e de novo depois de exportar),
-além de **Diagnóstico › Tamanho do backup**. O tamanho medido é o do texto do backup, o mesmo que a restauração de uma
-cópia confere. O arquivo baixado, em bytes, é ~0,7% maior por causa dos acentos. Numa faixa estreita logo abaixo de
-30 MB, o app pode mostrar "muito perto do limite" quando o arquivo já passou de 30 MB. Por isso o alerta forte começa em
-27 MB e já recomenda procurar o suporte.
+além de **Diagnóstico › Tamanho do backup**. Desde a 11.3.2, o tamanho medido é o do **arquivo, em bytes UTF-8 reais**
+(cada acento ocupa 2 bytes): o tamanho informado ao exportar é o do arquivo baixado, e o do backup completo é o do
+`data/backup.salaobackup` dentro do ZIP. Cada cópia nova do aparelho grava `bytes` junto de `tamanho`; as cópias criadas
+antes da 11.3.2 não têm `bytes` e usam o `tamanho` (caracteres) até serem substituídas. As listas de cópias mostram o
+tamanho em KB pelo mesmo critério. Bytes nunca são menos que caracteres, então o aviso cobre os dois caminhos da
+restauração (arquivo: bytes; cópia do aparelho: caracteres). **A retenção das cópias continua por `tamanho`**, sem mudança.

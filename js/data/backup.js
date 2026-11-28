@@ -2,6 +2,7 @@ import { transacao, ler, agora, norm, auditar, VERSAO_APP, VERSAO_BANCO, VERSAO_
 import { exigir } from "./permissoes.js";
 import { FORMATO, VERSAO_FORMATO, canonico, sha256 } from "./formatos_backup.js";
 import { analisarTexto, analisarDoc, AVISO_INCONSISTENTE, LIMITE_BYTES } from "./validacao_backup.js";
+import { bytesUtf8 } from "./tamanho_backup.js";
 // 11.3: formato e checksum em formatos_backup.js; análise em validacao_backup.js; restauração segura em restauracao.js.
 export { FORMATO, VERSAO_FORMATO, canonico, sha256 };
 export const LIMITE = LIMITE_BYTES;
@@ -39,7 +40,7 @@ export async function baixar() {
   baixarTexto(texto, nomeArquivo({ inconsistente: !consistente }));
   if (consistente) localStorage.setItem("salao_ultimo_download", agora());
   await transacao(["auditoria"], "readwrite", (t) => auditar(t, "exportacao", "sistema", null, consistente ? "Backup exportado" : "Backup de estado inconsistente exportado (apenas recuperação/análise)"));
-  return { bytes: texto.length, consistente, problemas: consistente ? [] : rel.erros };
+  return { bytes: bytesUtf8(texto), consistente, problemas: consistente ? [] : rel.erros }; // 11.3.2: bytes reais do arquivo
 }
 export function baixarBlob(blob, nome) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = nome; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); }
 export function baixarTexto(texto, nome) { baixarBlob(new Blob([texto], { type: "application/octet-stream" }), nome); }
@@ -64,7 +65,7 @@ export function politicaRetencao(lista, r = RETENCAO) {
   return ord.filter((b) => !manter.has(b.id)).map((b) => b.id);
 }
 export async function snapshot(motivo, extra = {}) {
-  const { texto, consistente } = await criarValidado(); const reg = { criado_em: agora(), motivo, tamanho: texto.length, texto, ...(consistente ? {} : { inconsistente: true }), ...extra };
+  const { texto, consistente } = await criarValidado(); const reg = { criado_em: agora(), motivo, tamanho: texto.length, bytes: bytesUtf8(texto), texto, ...(consistente ? {} : { inconsistente: true }), ...extra };
   const id = await transacao(["backups"], "readwrite", async (t) => { const id = await t.backups.adicionar(reg); const todos = await t.backups.todos(); for (const x of politicaRetencao(todos.map(({ id, motivo, tamanho }) => ({ id, motivo, tamanho: tamanho || 0 })))) if (x !== id) await t.backups.apagar(x); return id; });
   const gravado = (await ler("backups")).find((b) => b.id === id); // confirma que foi gravado
   if (!gravado || gravado.texto !== texto) throw new Error("Não foi possível confirmar a gravação do backup automático.");
